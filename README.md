@@ -6,8 +6,13 @@ This is the code for the NeurIPS2022 paper [[link](https://arxiv.org/abs/2207.06
 
 by [Yaodong Yu](https://yaodongyu.github.io), [Alexander Wei](https://www.alexwei.org), [Sai Praneeth Karimireddy](https://spkreddy.org), [Yi Ma](http://people.eecs.berkeley.edu/~yima/), [Michael I. Jordan](https://people.eecs.berkeley.edu/~jordan/) from UC Berkeley.
 
+### Prerequisites
+* Python
+* Pytorch
+* CUDA
+* numpy
 
-##### * Example on MNIST
+### * Example on MNIST
 
 Example code on MNIST can be found under ```mnist``` folder.
 
