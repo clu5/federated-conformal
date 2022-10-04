@@ -17,4 +17,3 @@ In this example, we consider every client has images of two categories chosen fr
 * ```rounds_stage2```: (TCT-stage2) number of training rounds
 * ```local_steps_stage2```: (TCT-stage2) number of local steps
 * ```local_lr_stage2```: (TCT-stage2) local learning rate
-The trade-off regularization parameter ```beta``` can be set in ```[1, 10]```. Larger ```beta``` leads to more robust and less accurate models.
