@@ -170,3 +170,4 @@ def client_compute_eNTK(client_model, train_loader):
     del data
     torch.cuda.empty_cache()
     return grads_data, targets_onehot, targets
+

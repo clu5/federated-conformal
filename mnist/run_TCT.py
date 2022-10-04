@@ -161,3 +161,4 @@ for round_idx in range(num_rounds_stage2):
     print('Round %d: train accuracy=%0.5g test accuracy=%0.5g' % (round_idx, train_acc.item(), test_acc.item()))
 
 print('===================== Finished TCT training =====================')
+
