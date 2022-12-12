@@ -10,13 +10,13 @@ import argparse
 
 
 class Net(nn.Module):
-    def __init__(self, in_channels: int = 1):
+    def __init__(self, in_channels: int = 1, out_channels: int = 10):
         super(Net, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, stride=2, padding=1)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
         self.fc1 = nn.Linear(2048, 128)
-        self.fc2 = nn.Linear(128, 10)
+        self.fc2 = nn.Linear(128, out_channels)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -41,7 +41,8 @@ def client_update(client_model, optimizer, train_loader, epoch=5):
             data, target = data.cuda(), target.cuda()
             optimizer.zero_grad()
             output = client_model(data)
-            loss = F.nll_loss(output, target)
+            score = F.log_softmax(output, dim=1)
+            loss = F.nll_loss(score, target)
             loss.backward()
             optimizer.step()
     return loss.item()
@@ -51,33 +52,35 @@ def average_models(global_model, client_models):
     """Average models across all clients."""
     global_dict = global_model.state_dict()
     for k in global_dict.keys():
-        global_dict[k] = torch.stack([client_models[i].state_dict()[k] for i in range(len(client_models))], 0).mean(0)
+        #breakpoint()
+        global_dict[k] = torch.stack([client_models[i].state_dict()[k] for i in range(len(client_models))], 0).float().mean(0)
     global_model.load_state_dict(global_dict)
 
 
-def evaluate_model(model, data_loader, return_scores=False):
+def evaluate_model(model, data_loader, return_logits=False):
     """Compute loss and accuracy of a single model on a data_loader."""
     model.eval()
     loss = 0
     correct = 0
-    scores, targets = [], []
+    logits, targets = [], []
     with torch.no_grad():
         for data, target in data_loader:
             data, target = data.cuda(), target.cuda()
             output = model(data)
-            loss += F.nll_loss(output, target, reduction='sum').item()  # sum up batch loss
-            pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+            score = F.log_softmax(output, dim=1)
+            loss += F.nll_loss(score, target, reduction='sum').item()  # sum up batch loss
+            pred = score.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
 
-            if return_scores:
-                scores.append(output.detach().cpu())
+            if return_logits:
+                logits.append(output.detach().cpu())
                 targets.append(target.detach().cpu())
 
     loss /= len(data_loader.dataset)
     acc = correct / len(data_loader.dataset)
 
-    if return_scores:
-        return loss, acc, torch.cat(scores), torch.cat(targets)
+    if return_logits:
+        return loss, acc, torch.cat(logits), torch.cat(targets)
     else:
         return loss, acc
 
@@ -93,13 +96,13 @@ def evaluate_many_models(models, data_loader):
 
 
 class Net_eNTK(nn.Module):
-    def __init__(self, in_channels: int = 1):
+    def __init__(self, in_channels: int = 1, out_channels: int = 10):
         super(Net_eNTK, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, stride=2, padding=1)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
         self.fc1 = nn.Linear(2048, 128)
-        self.fc2 = nn.Linear(128, 10)
+        self.fc2 = nn.Linear(128, out_channels)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -165,14 +168,25 @@ def scaffold_update(grads_data, targets, theta_client, h_i_client_pre, theta_glo
     return theta_hat_local, h_i_client_update
 
 
-def client_compute_eNTK(client_model, train_loader):
+def client_compute_eNTK(client_model, loader, num_batches=1):
     """Train a client_model on the train_loder data."""
     client_model.train()
 
-    data, targets = next(iter(train_loader))
+    it = iter(loader)
+    data = []
+    targets = []
+    for _ in range(num_batches):
+        _data, _targets = next(it)
+        data.append(_data)
+        targets.append(_targets)
+
+    data = torch.cat(data)
+    targets = torch.cat(targets)
+
     grads_data = compute_eNTK(client_model, data.cuda())
     grads_data = grads_data.float().cuda()
     targets = targets.cuda()
+
     # gradient
     targets_onehot = F.one_hot(targets, num_classes=10).cuda() - (1.0 / 10.0)
     del data
