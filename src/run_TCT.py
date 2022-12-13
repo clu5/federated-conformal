@@ -119,6 +119,11 @@ if __name__ == '__main__':
     else:
         save_name = 'tct'
 
+    if use_resnet:
+        save_name = f'resnet/{save_name}'
+    else:
+        save_name = f'cnn/{save_name}'
+
     in_channels = 3 if dataset_name == 'cifar' else 1
     out_channels = 10
 
