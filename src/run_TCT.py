@@ -5,11 +5,13 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader, Subset
 from torchvision import datasets, transforms, models
 import numpy as np
+import matplotlib.pyplot as plt; plt.style.use('seaborn')
 from tqdm import tqdm
 import copy
 import argparse
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+import collections
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 from pathlib import Path
 from utils import (
     Net, Net_eNTK, client_update, average_models, evaluate_model,
@@ -80,7 +82,9 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint_dir', default='checkpoints', type=str)
     parser.add_argument('--dataset', default='mnist', type=str)
     parser.add_argument('--score_dir', default='scores', type=str)
+    parser.add_argument('--figure_dir', default='plots', type=str)
     parser.add_argument('--resnet', action='store_true')
+    parser.add_argument('--debug', action='store_true')
     args = vars(parser.parse_args())
 
     torch.manual_seed(args["seed"])
@@ -89,6 +93,7 @@ if __name__ == '__main__':
     checkpoint_dir = Path(args['checkpoint_dir'])
     data_dir = Path(args['data_dir'])
     score_dir = Path(args['score_dir'])
+    figure_dir = Path(args['figure_dir'])
     dataset_name = args['dataset']
 
     data_dir.mkdir(exist_ok=True, parents=True)
@@ -98,6 +103,9 @@ if __name__ == '__main__':
 
     score_dir = score_dir / dataset_name
     score_dir.mkdir(exist_ok=True, parents=True)
+
+    figure_dir = figure_dir / dataset_name
+    figure_dir.mkdir(exist_ok=True, parents=True)
 
     # Hyperparameters
     num_clients = args["num_client"]
@@ -112,6 +120,13 @@ if __name__ == '__main__':
     lr_stage2 = args['local_lr_stage2']
     use_resnet = args['resnet']
 
+    debug = args['debug']  # debugging mode
+    if debug:
+        num_rounds_stage1 = 5
+        num_rounds_stage2 = 5
+        samples_per_client = 100
+        batch_size = 8
+
     if num_clients == 1:
         save_name = 'central'
     elif num_rounds_stage2 == 0:
@@ -119,17 +134,12 @@ if __name__ == '__main__':
     else:
         save_name = 'tct'
 
-    if use_resnet:
-        save_name = f'resnet/{save_name}'
-    else:
-        save_name = f'cnn/{save_name}'
-
     in_channels = 3 if dataset_name == 'cifar' else 1
     out_channels = 10
 
     if save_name == 'central':
         client_label_map = {'central_server': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]}
-        samples_per_client *= 5
+        samples_per_client *= num_clients
     else:
         client_label_map = {
             'client_0': [0, 1],
@@ -138,6 +148,12 @@ if __name__ == '__main__':
             'client_3': [6, 7],
             'client_4': [8, 9],
         }
+
+    if use_resnet:
+        save_name = f'resnet_{save_name}'
+    else:
+        save_name = f'cnn_{save_name}'
+
 
     _datasets = get_datasets(dataset_name, data_dir)
     client_train_datasets = partition_dataset(_datasets['train'], client_label_map, samples_per_client)  # noqa: E501
@@ -177,6 +193,9 @@ if __name__ == '__main__':
         model.load_state_dict(global_model.state_dict())
     opt = [optim.SGD(model.parameters(), lr=lr_stage1) for model in client_models]  # noqa: E501
 
+    stage1_losses = collections.defaultdict(list)
+    stage1_accuracies = []
+
     # Run TCT-Stage1 (i.e., FedAvg)
     for r in range(num_rounds_stage1):
         # load global weights
@@ -191,26 +210,48 @@ if __name__ == '__main__':
         # average params across neighbors
         average_models(global_model, client_models)
 
+        # save global model
+        torch.save(global_model.state_dict(), checkpoint_dir / f'{save_name}_stage1_model.pth')  # noqa: E501
+
         # evaluate
         test_losses, accuracies = evaluate_many_models(client_models, test_loader)  # noqa: E501
-        torch.save(client_models[0].state_dict(), checkpoint_dir / f'{save_name}_stage1_model.pth')  # noqa: E501
 
+        stage1_losses['train'].append(loss / num_clients)
+        stage1_losses['test'].append(test_losses.mean())
+        stage1_accuracies.append(accuracies.mean())
 
         print(f'{r}d-th round: average train loss %0.3g | average test loss %0.3g | average test acc: %0.3f' % (
                 loss / num_clients, test_losses.mean(), accuracies.mean()))
 
+    fig, ax = plt.subplots(ncols=2, figsize=(16, 5))
+    train_acc = np.arange(0, 1, 0.1) + 0.1
+    test_acc = np.arange(0, 1, 0.1)
+    fontsize = 24
+    ax[0].plot(stage1_losses['train'], label='train')
+    ax[0].plot(stage1_losses['test'], label='test')
+    ax[0].set_xlabel('round', fontsize=fontsize)
+    ax[0].set_ylabel('loss', fontsize=fontsize)
+    ax[0].legend(fontsize=fontsize)
+    ax[1].plot(stage1_accuracies, label='client test')
+    ax[1].set_xlabel('round', fontsize=fontsize)
+    ax[1].set_ylabel('accuracy', fontsize=fontsize)
+    ax[1].legend(fontsize=fontsize)
+    plt.savefig(figure_dir / f'{save_name}_stage1_loss_curve.png')
+
     val_loss, val_acc, val_scores, val_targets = evaluate_model(global_model, val_loader, return_logits=True)  # noqa: E501
     test_loss, test_acc, test_scores, test_targets = evaluate_model(global_model, test_loader, return_logits=True)  # noqa: E501
-    torch.save(val_scores, score_dir / f'{save_name}_stage1_val_scores.pth')
-    torch.save(val_targets, score_dir / f'{save_name}_stage1_val_targets.pth')
-    torch.save(test_scores, score_dir / f'{save_name}_stage1_test_scores.pth')
-    torch.save(test_targets, score_dir / f'{save_name}_stage1_test_targets.pth')
+
+    if not debug:
+        torch.save(val_scores, score_dir / f'{save_name}_stage1_val_scores.pth')
+        torch.save(val_targets, score_dir / f'{save_name}_stage1_val_targets.pth')
+        torch.save(test_scores, score_dir / f'{save_name}_stage1_test_scores.pth')
+        torch.save(test_targets, score_dir / f'{save_name}_stage1_test_targets.pth')
 
     print(f'global model -- val loss: {val_loss} -- val acc: {val_acc} -- test_loss: {test_loss} -- test acc: {test_acc}')
 
     if num_rounds_stage2 != 0:
         print(' Start TCT Stage-2 '.center(20, '='))
-        checkpoint  = checkpoint_dir / f'tct_stage1_model.pth'
+        checkpoint  = checkpoint_dir / f'{save_name}_stage1_model.pth'
 
         # Init and load model ckpt
 
@@ -224,7 +265,6 @@ if __name__ == '__main__':
             global_model.fc2 = nn.Linear(128, 1).cuda()
         print('loaded eNTK model')
 
-        #train_scores, train_targets, test_scores, test_targets, val_scores, val_targets = run_stage2(global_model, train_loader, val_loader, test_loader, num_clients, num_rounds_stage2, num_local_steps, lr_stage2)  # noqa: E501
 
         # Compute eNTK representations
 
@@ -291,8 +331,10 @@ if __name__ == '__main__':
             logits_class_val = grad_val @ theta_global
             _, targets_pred_val = logits_class_val.max(1)
 
-        torch.save(logits_class_val, score_dir / f'{save_name}_stage2_val_scores.pth')
-        torch.save(target_val, score_dir / f'{save_name}_stage2_val_targets.pth')
-        torch.save(logits_class_test, score_dir / f'{save_name}_stage2_test_scores.pth')
-        torch.save(target_eval, score_dir / f'{save_name}_stage2_test_targets.pth')
+        if not debug:
+            torch.save(logits_class_val, score_dir / f'{save_name}_stage2_val_scores.pth')
+            torch.save(target_val, score_dir / f'{save_name}_stage2_val_targets.pth')
+            torch.save(logits_class_test, score_dir / f'{save_name}_stage2_test_scores.pth')
+            torch.save(target_eval, score_dir / f'{save_name}_stage2_test_targets.pth')
+
         print(' Finished TCT Stage-2 '.center(20, '='))

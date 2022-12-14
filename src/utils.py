@@ -124,7 +124,9 @@ def compute_eNTK(model, X, subsample_size=100000, seed=123):
     params = list(model.parameters())
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    random_index = torch.randperm(355073)[:subsample_size]
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print('num_params:', num_params)
+    random_index = torch.randperm(num_params)[:subsample_size]
     grads = None
     for i in tqdm(range(X.size()[0])):
         model.zero_grad()
