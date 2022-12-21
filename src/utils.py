@@ -29,14 +29,16 @@ class Net(nn.Module):
         x = self.fc1(x)
         x = F.relu(x)
         x = self.fc2(x)
-        output = F.log_softmax(x, dim=1)
-        return output
+        #output = F.log_softmax(x, dim=1)
+        #return output
+        return x
 
 
 def client_update(client_model, optimizer, train_loader, epoch=5):
     """Train a client_model on the train_loder data."""
     client_model.train()
     for e in range(epoch):
+        total_loss = 0
         for batch_idx, (data, target) in enumerate(train_loader):
             data, target = data.cuda(), target.cuda()
             optimizer.zero_grad()
@@ -45,14 +47,14 @@ def client_update(client_model, optimizer, train_loader, epoch=5):
             loss = F.nll_loss(score, target)
             loss.backward()
             optimizer.step()
-    return loss.item()
+            total_loss += loss.item()
+    return total_loss / len(train_loader)
 
 
 def average_models(global_model, client_models):
     """Average models across all clients."""
     global_dict = global_model.state_dict()
     for k in global_dict.keys():
-        #breakpoint()
         global_dict[k] = torch.stack([client_models[i].state_dict()[k] for i in range(len(client_models))], 0).float().mean(0)
     global_model.load_state_dict(global_dict)
 
@@ -130,7 +132,7 @@ def compute_eNTK(model, X, subsample_size=100000, seed=123):
     grads = None
     for i in tqdm(range(X.size()[0])):
         model.zero_grad()
-        model.forward(X[i : i+1])[0].backward()
+        model.forward(X[i:i+1])[0].backward()
 
         grad = []
         for param in params:
@@ -170,10 +172,8 @@ def scaffold_update(grads_data, targets, theta_client, h_i_client_pre, theta_glo
     return theta_hat_local, h_i_client_update
 
 
-def client_compute_eNTK(client_model, loader, num_batches=1):
+def client_compute_eNTK(client_model, loader, num_batches=1, seed=123):
     """Train a client_model on the train_loder data."""
-    client_model.train()
-
     it = iter(loader)
     data = []
     targets = []
@@ -185,7 +185,7 @@ def client_compute_eNTK(client_model, loader, num_batches=1):
     data = torch.cat(data)
     targets = torch.cat(targets)
 
-    grads_data = compute_eNTK(client_model, data.cuda())
+    grads_data = compute_eNTK(client_model, data.cuda(), seed=seed)
     grads_data = grads_data.float().cuda()
     targets = targets.cuda()
 
