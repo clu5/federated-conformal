@@ -1,6 +1,7 @@
 import argparse
 import collections
 import copy
+import json
 import os
 from pathlib import Path
 
@@ -42,7 +43,7 @@ if __name__ == "__main__":
     parser.add_argument("--local_lr_stage2", default=0.00001, type=float)
     parser.add_argument("--data_dir", default="data", type=str)
     parser.add_argument("--save_dir", default="experiments", type=str)
-    parser.add_argument("--dataset", default="cifar", type=str)
+    parser.add_argument("--dataset", default="fashion", type=str)
     parser.add_argument("--architecture", default="cnn", type=str)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--start_from_stage2", action="store_true")
@@ -88,7 +89,7 @@ if __name__ == "__main__":
             "client_4": [6, 7],
             "client_5": [8, 9],
         }
-    elif dataset_name == "cifar":
+    elif dataset_name == "cifar10":
         in_channels = 3
         num_classes = 10
         num_clients = 5
@@ -98,6 +99,22 @@ if __name__ == "__main__":
             "client_3": [4, 5],
             "client_4": [6, 7],
             "client_5": [8, 9],
+        }
+    elif dataset_name == "cifar100":
+        in_channels = 3
+        num_classes = 100
+        num_clients = 10
+        client_label_map = {
+            "client_1": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            "client_2": [10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+            "client_3": [20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
+            "client_4": [30, 31, 32, 33, 34, 35, 36, 37, 38, 39],
+            "client_5": [40, 41, 42, 43, 44, 45, 46, 47, 48, 49],
+            "client_6": [50, 51, 52, 53, 54, 55, 56, 57, 58, 59],
+            "client_7": [60, 61, 62, 63, 64, 65, 66, 67, 68, 69],
+            "client_8": [70, 71, 72, 73, 74, 75, 76, 77, 78, 79],
+            "client_9": [80, 81, 82, 83, 84, 85, 86, 87, 88, 89],
+            "client_10": [90, 91, 92, 93, 94, 95, 96, 97, 98, 99],
         }
     elif dataset_name == "bloodmnist":
         in_channels = 3
@@ -134,6 +151,7 @@ if __name__ == "__main__":
 
     if central:
         experiment = "central"
+        num_clients = 1
         local_epochs_stage1 = 1
         num_rounds_stage2 = 0
         client_label_map = {"central_server": list(range(num_classes))}
@@ -155,7 +173,7 @@ if __name__ == "__main__":
         batch_size = 8
         num_test_samples = 100
 
-    print(f" {save_name} ".center(20, "="))
+    print(f" {save_name} ".center(40, "="))
 
     save_dir = Path(args["save_dir"]) / save_name
     data_dir = Path(args["data_dir"])
@@ -171,6 +189,9 @@ if __name__ == "__main__":
 
     figure_dir = save_dir / "figures"
     figure_dir.mkdir(exist_ok=True, parents=True)
+
+    with open(save_dir / "commands.txt", "w") as f:
+        json.dump(args, f, indent=4)
 
     _datasets = get_datasets(dataset_name, data_dir)
     client_train_datasets = partition_dataset(

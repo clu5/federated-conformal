@@ -11,6 +11,9 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import datasets, models, transforms
 from tqdm import tqdm
 
+from resnet import (small_resnet20, small_resnet32, small_resnet44,
+                    small_resnet56, small_resnet110)
+
 
 def get_datasets(dataset_name: str, data_dir: str) -> dict[str, Dataset]:  # noqa: E501
     if dataset_name == "mnist":
@@ -27,13 +30,13 @@ def get_datasets(dataset_name: str, data_dir: str) -> dict[str, Dataset]:  # noq
         construct_dataset = datasets.FashionMNIST
         train_transform = [
             transforms.ToTensor(),
-            transforms.Normalize((0.5,), (0.5,)),
+            transforms.Normalize((0.2860,), (0.3530,)),
         ]
         test_transform = [
             transforms.ToTensor(),
-            transforms.Normalize((0.5,), (0.5,)),
+            transforms.Normalize((0.2860,), (0.3530,)),
         ]
-    elif dataset_name == "cifar":
+    elif dataset_name == "cifar10":
         construct_dataset = datasets.CIFAR10
         train_transform = [
             # transforms.RandomCrop(32, padding=4),
@@ -45,16 +48,28 @@ def get_datasets(dataset_name: str, data_dir: str) -> dict[str, Dataset]:  # noq
             transforms.ToTensor(),
             transforms.Normalize((0.4913, 0.4821, 0.4465), (0.2470, 0.2434, 0.2615)),
         ]
+    elif dataset_name == "cifar100":
+        construct_dataset = datasets.CIFAR100
+        train_transform = [
+            # transforms.RandomCrop(32, padding=4),
+            # transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5071, 0.4865, 0.4409), (0.2673, 0.2564, 0.2762)),
+        ]
+        test_transform = [
+            transforms.ToTensor(),
+            transforms.Normalize((0.5071, 0.4865, 0.4409), (0.2673, 0.2564, 0.2762)),
+        ]
     elif dataset_name == "bloodmnist":
         info = medmnist.INFO["bloodmnist"]
         construct_dataset = getattr(medmnist, info["python_class"])
         train_transform = [
             transforms.ToTensor(),
-            transforms.Normalize((0.5,), (0.5,)),
+            transforms.Normalize((0.7943, 0.6597, 0.6962), (0.2156, 0.2416, 0.1179)),
         ]
         test_transform = [
             transforms.ToTensor(),
-            transforms.Normalize((0.5,), (0.5,)),
+            transforms.Normalize((0.7943, 0.6597, 0.6962), (0.2156, 0.2416, 0.1179)),
         ]
         target_transform = transforms.Lambda(lambda x: x[0])
     elif dataset_name == "pathmnist":
@@ -62,11 +77,11 @@ def get_datasets(dataset_name: str, data_dir: str) -> dict[str, Dataset]:  # noq
         construct_dataset = getattr(medmnist, info["python_class"])
         train_transform = [
             transforms.ToTensor(),
-            transforms.Normalize((0.5,), (0.5,)),
+            transforms.Normalize((0.7405, 0.533, 0.7058), (0.1237, 0.1768, 0.1244)),
         ]
         test_transform = [
             transforms.ToTensor(),
-            transforms.Normalize((0.5,), (0.5,)),
+            transforms.Normalize((0.7405, 0.533, 0.7058), (0.1237, 0.1768, 0.1244)),
         ]
         target_transform = transforms.Lambda(lambda x: x[0])
     elif dataset_name == "tissuemnist":
@@ -74,11 +89,11 @@ def get_datasets(dataset_name: str, data_dir: str) -> dict[str, Dataset]:  # noq
         construct_dataset = getattr(medmnist, info["python_class"])
         train_transform = [
             transforms.ToTensor(),
-            transforms.Normalize((0.5,), (0.5,)),
+            transforms.Normalize((0.1020,), (0.1000,)),
         ]
         test_transform = [
             transforms.ToTensor(),
-            transforms.Normalize((0.5,), (0.5,)),
+            transforms.Normalize((0.1020,), (0.1000,)),
         ]
         target_transform = transforms.Lambda(lambda x: x[0])
     else:
@@ -179,14 +194,55 @@ def init_params(net):
 def make_model(architecture, in_channels=1, num_classes=10):
     if architecture == "cnn":
         model = Net_eNTK(in_channels, num_classes)
-    elif architecture == "resnet":
-        model = models.resnet18()
+    elif architecture == "small_resnet20":
+        model = small_resnet20(in_channels=in_channels, num_classes=num_classes)
+    elif architecture == "small_resnet32":
+        model = small_resnet32(in_channels=in_channels, num_classes=num_classes)
+    elif architecture == "small_resnet44":
+        model = small_resnet44(in_channels=in_channels, num_classes=num_classes)
+    elif architecture == "small_resnet56":
+        model = small_resnet56(in_channels=in_channels, num_classes=num_classes)
+    elif architecture == "resnet34":
+        model = models.resnet34()
         model.conv1 = nn.Conv2d(
-            in_channels, 64, kernel_size=3, stride=1, padding=1, bias=False
+            in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
         )
+        model.bn1 = nn.BatchNorm2d(in_channels)
         model.fc = nn.Linear(in_features=512, out_features=num_classes, bias=True)
-    elif architecture == "efficientnet":
+    elif architecture == "efficientnet-b0":
         model = models.efficientnet_b0()
+        model.features[0][0] = nn.Conv2d(
+            in_channels, 32, kernel_size=3, stride=2, padding=1, bias=False
+        )
+        model.classifier[1] = nn.Linear(
+            in_features=1280, out_features=num_classes, bias=True
+        )
+    elif architecture == "efficientnet-b1":
+        model = models.efficientnet_b1()
+        model.features[0][0] = nn.Conv2d(
+            in_channels, 32, kernel_size=3, stride=2, padding=1, bias=False
+        )
+        model.classifier[1] = nn.Linear(
+            in_features=1280, out_features=num_classes, bias=True
+        )
+    elif architecture == "efficientnet-b2":
+        model = models.efficientnet_b2()
+        model.features[0][0] = nn.Conv2d(
+            in_channels, 32, kernel_size=3, stride=2, padding=1, bias=False
+        )
+        model.classifier[1] = nn.Linear(
+            in_features=1280, out_features=num_classes, bias=True
+        )
+    elif architecture == "efficientnet-b3":
+        model = models.efficientnet_b3()
+        model.features[0][0] = nn.Conv2d(
+            in_channels, 32, kernel_size=3, stride=2, padding=1, bias=False
+        )
+        model.classifier[1] = nn.Linear(
+            in_features=1280, out_features=num_classes, bias=True
+        )
+    elif architecture == "efficientnet-b4":
+        model = models.efficientnet_b4()
         model.features[0][0] = nn.Conv2d(
             in_channels, 32, kernel_size=3, stride=2, padding=1, bias=False
         )
