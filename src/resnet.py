@@ -138,6 +138,12 @@ class ResNet(nn.Module):
         return out
 
 
+def small_resnet14(in_channels, num_classes):
+    return ResNet(
+        BasicBlock, [2, 2, 2], in_channels=in_channels, num_classes=num_classes
+    )
+
+
 def small_resnet20(in_channels, num_classes):
     return ResNet(
         BasicBlock, [3, 3, 3], in_channels=in_channels, num_classes=num_classes

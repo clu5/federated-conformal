@@ -2,13 +2,17 @@ import argparse
 import collections
 import copy
 import json
+import logging
 import os
+import sys
+import time
 from pathlib import Path
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import matplotlib.pyplot as plt
 import medmnist
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -20,6 +24,8 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import datasets, models, transforms
 from tqdm import tqdm
 
+from skin_dataset import (TEST_TRANSFORM, TRAIN_TRANSFORM, SkinDataset,
+                          get_weighted_sampler)
 from utils import (Net, Net_eNTK, average_models, client_compute_eNTK,
                    client_update, compute_eNTK, evaluate_many_models,
                    evaluate_model, get_datasets, make_model, partition_dataset,
@@ -28,16 +34,16 @@ from utils import (Net, Net_eNTK, average_models, client_compute_eNTK,
 plt.style.use("seaborn")
 
 
-if __name__ == "__main__":
-    """Configuration"""
+def main():
+    """Main script for TCT, FedAvg, and Centrally hosted experiments"""
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_client", default=5, type=int)
     parser.add_argument("--seed", default=123, type=int)
     parser.add_argument("--samples_per_client", default=1000, type=int)
     parser.add_argument("--rounds_stage1", default=50, type=int)
     parser.add_argument("--local_epochs_stage1", default=5, type=int)
-    parser.add_argument("--mini_batchsize_stage1", default=128, type=int)
-    parser.add_argument("--local_lr_stage1", default=0.1, type=float)
+    parser.add_argument("--batch_size", default=64, type=int)
+    parser.add_argument("--local_lr_stage1", default=0.01, type=float)
     parser.add_argument("--rounds_stage2", default=100, type=int)
     parser.add_argument("--local_steps_stage2", default=200, type=int)
     parser.add_argument("--local_lr_stage2", default=0.00001, type=float)
@@ -51,8 +57,18 @@ if __name__ == "__main__":
     parser.add_argument("--num_test_samples", default=5000, type=int)
     parser.add_argument("--use_iid_partition", action="store_true")
     parser.add_argument("--central", action="store_true")
+    parser.add_argument("--momentum", default=0.9, type=float)
+    parser.add_argument("--use_data_augmentation", action="store_true")
+    parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrick.csv", type=str)
+    parser.add_argument("--pretrained", action="store_true")
+    parser.add_argument(
+        "--fitzpatrick_image_dir",
+        default="/u/luchar/data/fitzpatrick17k/images",
+        type=str,
+    )
     args = vars(parser.parse_args())
 
+    # Set random seed for Repeatability
     seed = args["seed"]
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
@@ -62,10 +78,9 @@ if __name__ == "__main__":
     num_rounds_stage1 = args["rounds_stage1"]
     num_rounds_stage2 = args["rounds_stage2"]
     local_epochs_stage1 = args["local_epochs_stage1"]
-    batch_size_stage1 = args["mini_batchsize_stage1"]
     lr_stage1 = args["local_lr_stage1"]
     samples_per_client = args["samples_per_client"]
-    batch_size = args["mini_batchsize_stage1"]
+    batch_size = args["batch_size"]
     num_local_steps = args["local_steps_stage2"]
     lr_stage2 = args["local_lr_stage2"]
     architecture = args["architecture"]
@@ -74,11 +89,28 @@ if __name__ == "__main__":
     num_test_samples = args["num_test_samples"]
     use_iid_partition = args["use_iid_partition"]
     central = args["central"]
+    momentum = args["momentum"]
+    use_data_augmentation = args["use_data_augmentation"]
+    fitzpatrick_csv = args["fitzpatrick_csv"]
+    fitzpatrick_image_dir = args["fitzpatrick_image_dir"]
+    print(fitzpatrick_image_dir)
+    pretrained = args["pretrained"]
 
     debug = args["debug"]  # debugging mode
     dataset_name = args["dataset"]
 
-    if dataset_name == "fashion":
+    if dataset_name == "mnist":
+        in_channels = 1
+        num_classes = 10
+        num_clients = 5
+        client_label_map = {
+            "client_1": [0, 1],
+            "client_2": [2, 3],
+            "client_3": [4, 5],
+            "client_4": [6, 7],
+            "client_5": [8, 9],
+        }
+    elif dataset_name == "fashion":
         in_channels = 1
         num_classes = 10
         num_clients = 5
@@ -146,6 +178,11 @@ if __name__ == "__main__":
             "client_3": [4, 5],
             "client_4": [6, 7],
         }
+    elif dataset_name == "fitzpatrick":
+        in_channels = 3
+        num_classes = 114
+        num_clients = 6
+
     else:
         raise ValueError(f'dataset "{dataset_name}" not supported')
 
@@ -165,6 +202,9 @@ if __name__ == "__main__":
     if use_iid_partition:
         save_name = save_name + "_iid_partition"
 
+    if pretrained:
+        save_name = save_name + "_pretrained"
+
     if debug:
         save_name = "debug_" + save_name
         num_rounds_stage1 = 5
@@ -173,8 +213,7 @@ if __name__ == "__main__":
         batch_size = 8
         num_test_samples = 100
 
-    print(f" {save_name} ".center(40, "="))
-
+    # Make directory to write outputs
     save_dir = Path(args["save_dir"]) / save_name
     data_dir = Path(args["data_dir"])
 
@@ -193,69 +232,174 @@ if __name__ == "__main__":
     with open(save_dir / "commands.txt", "w") as f:
         json.dump(args, f, indent=4)
 
-    _datasets = get_datasets(dataset_name, data_dir)
-    client_train_datasets = partition_dataset(
-        _datasets["train"],
-        client_label_map,
-        samples_per_client,
-        use_iid_partition=use_iid_partition,
-    )
-    train_loaders = [
-        DataLoader(
-            train_subset, batch_size=batch_size, shuffle=True, num_workers=num_workers
+    # Setup logging to write console output to file
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+
+    # print to stdout
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    logger.addHandler(console_handler)
+
+    # write to file
+    file_handler = logging.FileHandler(save_dir / "history.log")
+    file_handler.setLevel(logging.DEBUG)
+    logger.addHandler(file_handler)
+
+    logger.info(f" {save_name.upper()} ".center(50, "="))
+
+    if dataset_name == "fitzpatrick":
+        df = pd.read_csv(fitzpatrick_csv)
+        skin_types = sorted(df.aggregated_fitzpatrick_scale.unique())
+        train_partition = {
+            str(st): df.query(
+                "aggregated_fitzpatrick_scale == @st and split == 'train'"
+            )
+            for st in skin_types
+        }
+        val_df = df.query("split == 'val'")
+        test_df = df.query("split == 'test'")
+        samplers = {
+            str(st): get_weighted_sampler(df) for st, df in train_partition.items()
+        }
+
+        train_datasets = {
+            str(st): SkinDataset(
+                image_dir=fitzpatrick_image_dir,
+                label_mapping=dict(df[["md5hash", "target"]].values),
+                transform=TRAIN_TRANSFORM if use_data_augmentation else TEST_TRANSFORM,
+            )
+            for st, df in train_partition.items()
+        }
+        val_map = dict(val_df[["md5hash", "target"]].values)
+        val_dataset = SkinDataset(
+            image_dir=fitzpatrick_image_dir,
+            label_mapping=val_map,
+            transform=TEST_TRANSFORM,
         )
-        for train_subset in client_train_datasets.values()
-    ]
+        test_map = dict(test_df[["md5hash", "target"]].values)
+        test_dataset = SkinDataset(
+            image_dir=fitzpatrick_image_dir,
+            label_mapping=test_map,
+            transform=TEST_TRANSFORM,
+        )
 
-    test_dataset = _datasets["test"]
-
-    if dataset_name in ("bloodmnist", "pathmnist", "tissuemnist"):
-        val_dataset = _datasets["val"]
-        val_index = torch.randperm(len(val_dataset))[:1000]
-        test_index = torch.randperm(len(test_dataset))[:num_test_samples]
-        val_subsample = Subset(val_dataset, val_index.tolist())
-        test_subsample = Subset(test_dataset, test_index.tolist())
+        train_loaders = [
+            DataLoader(
+                ds,
+                batch_size=batch_size,
+                sampler=samplers[st],
+                num_workers=num_workers,
+                pin_memory=True,
+            )
+            for st, ds in train_datasets.items()
+        ]
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            pin_memory=True,
+            shuffle=False,
+        )
+        test_loader = DataLoader(
+            test_dataset,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            pin_memory=True,
+            shuffle=False,
+        )
     else:
-        val_split: float = 0.1
-        num_val = round(val_split * len(test_dataset))
-        rand_index = torch.randperm(len(test_dataset))
-        val_index = rand_index[:num_val][:num_test_samples]
-        test_index = rand_index[num_val:][:num_test_samples]
-        val_subsample = Subset(test_dataset, val_index.tolist())
-        test_subsample = Subset(test_dataset, test_index.tolist())
+        _datasets = get_datasets(
+            dataset_name, data_dir, use_data_augmentation=use_data_augmentation
+        )
+        client_train_datasets = partition_dataset(
+            _datasets["train"],
+            client_label_map,
+            samples_per_client,
+            use_iid_partition=use_iid_partition,
+        )
+        train_loaders = [
+            DataLoader(
+                train_subset,
+                batch_size=batch_size,
+                shuffle=True,
+                num_workers=num_workers,
+                pin_memory=True,
+            )
+            for train_subset in client_train_datasets.values()
+        ]
 
-    val_loader = DataLoader(
-        val_subsample, batch_size=batch_size, shuffle=False, num_workers=num_workers
-    )
-    test_loader = DataLoader(
-        test_subsample, batch_size=batch_size, shuffle=False, num_workers=num_workers
-    )
+        test_dataset = _datasets["test"]
 
-    if debug:
-        print(f"{val_index.shape=}")
-        print(f"{test_index.shape=}")
-        print(f"{len(val_loader)=}")
-        print(f"{len(test_loader)=}")
-        print(f"{len(val_loader.dataset)=}")
-        print(f"{len(test_loader.dataset)=}")
+        if dataset_name in ("bloodmnist", "pathmnist", "tissuemnist"):
+            val_dataset = _datasets["val"]
+            val_index = torch.randperm(len(val_dataset))[:1000]
+            test_index = torch.randperm(len(test_dataset))[:num_test_samples]
+            val_subsample = Subset(val_dataset, val_index.tolist())
+            test_subsample = Subset(test_dataset, test_index.tolist())
+        else:
+            val_split: float = 0.1
+            num_val = round(val_split * len(test_dataset))
+            rand_index = torch.randperm(len(test_dataset))
+            val_index = rand_index[:num_val][:num_test_samples]
+            test_index = rand_index[num_val:][:num_test_samples]
+            val_subsample = Subset(test_dataset, val_index.tolist())
+            test_subsample = Subset(test_dataset, test_index.tolist())
+
+        val_loader = DataLoader(
+            val_subsample,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=True,
+        )
+        test_loader = DataLoader(
+            test_subsample,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=True,
+        )
+
+    logger.debug(f"{len(val_loader)=}")
+    logger.debug(f"{len(test_loader)=}")
+    logger.debug(f"{len(val_loader.dataset)=}")
+    logger.debug(f"{len(test_loader.dataset)=}")
 
     for i, loader in enumerate(train_loaders):
-        print(f"client {i} train samples".ljust(20, "-"), len(loader.dataset))
-    print("val samples".ljust(20, "-"), len(val_loader.dataset))
-    print("test samples".ljust(20, "-"), len(test_loader.dataset))
+        logger.info(
+            f"client {i} train samples".ljust(20, "-") + f" {len(loader.dataset)}"
+        )
+    logger.info("val samples".ljust(20, "-") + f" {len(val_loader.dataset)}")
+    logger.info("test samples".ljust(20, "-") + f" {len(test_loader.dataset)}")
 
     if not start_from_stage2:
-        print("===================== Start TCT Stage-1 =====================")
+        logger.info("===================== Start Stage-1 =====================")
 
         # Instantiate models and optimizers
-        global_model = make_model(architecture, in_channels, num_classes).cuda()
+        global_model = torch.nn.DataParallel(
+            make_model(architecture, in_channels, num_classes)
+        ).cuda()
         client_models = [
-            make_model(architecture, in_channels, num_classes).cuda()
+            torch.nn.DataParallel(
+                make_model(architecture, in_channels, num_classes)
+            ).cuda()
             for _ in range(num_clients)
         ]
         for model in client_models:
-            model.load_state_dict(global_model.state_dict())
-        opt = [optim.SGD(model.parameters(), lr=lr_stage1) for model in client_models]
+            model.module.load_state_dict(global_model.module.state_dict())
+        opt = [
+            optim.SGD(
+                model.parameters(),
+                lr=lr_stage1,
+                momentum=momentum,
+            )
+            for model in client_models
+        ]
+
+        logger.info(f"{len(client_models)=}")
+        logger.info(f"{len(train_loaders)=}")
+        logger.info(f"{opt=}")
 
         stage1_loss = collections.defaultdict(list)
         stage1_accuracy = collections.defaultdict(list)
@@ -265,7 +409,7 @@ if __name__ == "__main__":
 
             # load global weights
             for model in client_models:
-                model.load_state_dict(global_model.state_dict())
+                model.module.load_state_dict(global_model.module.state_dict())
 
             # client update
             loss = 0
@@ -282,7 +426,7 @@ if __name__ == "__main__":
 
             # save global model
             torch.save(
-                global_model.state_dict(),
+                global_model.module.state_dict(),
                 checkpoint_dir / f"{save_name}_stage1_model.pth",
             )
 
@@ -310,15 +454,6 @@ if __name__ == "__main__":
             stage1_accuracy["clients_train"].append(clients_train_acc)
             stage1_accuracy["clients_test"].append(clients_test_acc)
 
-            print(
-                f"{str(r).zfill(3)} == clients =="
-                f"  train loss {clients_train_loss:.3f} "
-                f"| test loss {clients_test_loss:.3f} "
-                f"| train acc {clients_train_acc:.3f} "
-                f"| test acc {clients_test_acc:.3f} ",
-                end="\t",
-            )
-
             # evaluate global model
             global_train_loss, global_train_acc = 0, 0
             for i in range(num_clients):
@@ -339,8 +474,13 @@ if __name__ == "__main__":
             stage1_accuracy["global_train"].append(global_train_acc)
             stage1_accuracy["global_test"].append(global_test_acc)
 
-            print(
-                f"\t== global model =="
+            logger.info(
+                f"{str(r).zfill(3)} == clients =="
+                f"  train loss {clients_train_loss:.3f} "
+                f"| test loss {clients_test_loss:.3f} "
+                f"| train acc {clients_train_acc:.3f} "
+                f"| test acc {clients_test_acc:.3f} "
+                f"   == global model =="
                 f"  train loss {global_train_loss:.3f} "
                 f"| test loss {global_test_loss:.3f} "
                 f"| train acc {global_train_acc:.3f} "
@@ -378,12 +518,12 @@ if __name__ == "__main__":
             torch.save(test_scores, score_dir / f"{save_name}_stage1_test_scores.pth")
             torch.save(test_targets, score_dir / f"{save_name}_stage1_test_targets.pth")
 
-        print(
+        logger.info(
             f"global model -- {val_loss=:.3f} -- {val_acc=:.3f} -- {test_loss=:.3f} -- {test_acc=:.3f}"
         )
 
     if num_rounds_stage2 != 0 and experiment == "tct":
-        print(" Start TCT Stage-2 ".center(20, "="))
+        logger.info(" Start Stage-2 ".center(20, "="))
         checkpoint = checkpoint_dir / f"{save_name}_stage1_model.pth"
 
         # Init and load model ckpt
@@ -393,7 +533,7 @@ if __name__ == "__main__":
         global_model = replace_last_layer(global_model, architecture, num_classes=1)
         global_model = global_model.cuda()
 
-        print("loaded eNTK model")
+        logger.info("loaded eNTK model")
 
         # Compute eNTK representations
 
@@ -488,13 +628,12 @@ if __name__ == "__main__":
             ).item()
             test_max_score = logits_class_test.max(1).values.mean().item()
 
-            print(f"{round_idx=}: {train_acc=:.3f} {test_acc=:.3f}")
+            logger.info(f"{round_idx=}: {train_acc=:.3f} {test_acc=:.3f}")
 
-            if debug:
-                print(f"{torch.cat(grad_all).shape=}", torch.cat(grad_all).max())
-                print(f"{grad_test.shape=}", grad_test.max())
-                print(f"{theta_global.shape=}", theta_global.max())
-                print(f"{train_max_score=:.3f} {test_max_score=:.3f}")
+            logger.debug(f"{torch.cat(grad_all).shape=}")
+            logger.debug(f"{grad_test.shape=}")
+            logger.debug(f"{theta_global.shape=}")
+            logger.debug(f"{train_max_score=:.3f} {test_max_score=:.3f}")
 
         if not debug:
             torch.save(
@@ -512,4 +651,11 @@ if __name__ == "__main__":
             )
             torch.save(target_test, score_dir / f"{save_name}_stage2_test_targets.pth")
 
-        print(" Finished TCT Stage-2 ".center(20, "="))
+        logger.info(" Finished TCT Stage-2 ".center(20, "="))
+
+    # sys.stdout.close()
+    # sys.stdout = original_stdout
+
+
+if __name__ == "__main__":
+    main()

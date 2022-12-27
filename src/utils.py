@@ -1,5 +1,6 @@
 import argparse
 import copy
+import sys
 
 import medmnist
 import numpy as np
@@ -11,11 +12,13 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import datasets, models, transforms
 from tqdm import tqdm
 
-from resnet import (small_resnet20, small_resnet32, small_resnet44,
-                    small_resnet56, small_resnet110)
+from resnet import (small_resnet14, small_resnet20, small_resnet32,
+                    small_resnet44, small_resnet56, small_resnet110)
 
 
-def get_datasets(dataset_name: str, data_dir: str) -> dict[str, Dataset]:  # noqa: E501
+def get_datasets(
+    dataset_name: str, data_dir: str, use_data_augmentation: bool = False
+) -> dict[str, Dataset]:
     if dataset_name == "mnist":
         construct_dataset = datasets.MNIST
         train_transform = [
@@ -28,6 +31,10 @@ def get_datasets(dataset_name: str, data_dir: str) -> dict[str, Dataset]:  # noq
         ]
     elif dataset_name == "fashion":
         construct_dataset = datasets.FashionMNIST
+        data_augmentation = [
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+        ]
         train_transform = [
             transforms.ToTensor(),
             transforms.Normalize((0.2860,), (0.3530,)),
@@ -38,9 +45,11 @@ def get_datasets(dataset_name: str, data_dir: str) -> dict[str, Dataset]:  # noq
         ]
     elif dataset_name == "cifar10":
         construct_dataset = datasets.CIFAR10
+        data_augmentation = [
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+        ]
         train_transform = [
-            # transforms.RandomCrop(32, padding=4),
-            # transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize((0.4913, 0.4821, 0.4465), (0.2470, 0.2434, 0.2615)),
         ]
@@ -50,9 +59,11 @@ def get_datasets(dataset_name: str, data_dir: str) -> dict[str, Dataset]:  # noq
         ]
     elif dataset_name == "cifar100":
         construct_dataset = datasets.CIFAR100
+        data_augmentation = [
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+        ]
         train_transform = [
-            # transforms.RandomCrop(32, padding=4),
-            # transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize((0.5071, 0.4865, 0.4409), (0.2673, 0.2564, 0.2762)),
         ]
@@ -63,6 +74,10 @@ def get_datasets(dataset_name: str, data_dir: str) -> dict[str, Dataset]:  # noq
     elif dataset_name == "bloodmnist":
         info = medmnist.INFO["bloodmnist"]
         construct_dataset = getattr(medmnist, info["python_class"])
+        data_augmentation = [
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+        ]
         train_transform = [
             transforms.ToTensor(),
             transforms.Normalize((0.7943, 0.6597, 0.6962), (0.2156, 0.2416, 0.1179)),
@@ -75,6 +90,10 @@ def get_datasets(dataset_name: str, data_dir: str) -> dict[str, Dataset]:  # noq
     elif dataset_name == "pathmnist":
         info = medmnist.INFO["pathmnist"]
         construct_dataset = getattr(medmnist, info["python_class"])
+        data_augmentation = [
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+        ]
         train_transform = [
             transforms.ToTensor(),
             transforms.Normalize((0.7405, 0.533, 0.7058), (0.1237, 0.1768, 0.1244)),
@@ -87,6 +106,10 @@ def get_datasets(dataset_name: str, data_dir: str) -> dict[str, Dataset]:  # noq
     elif dataset_name == "tissuemnist":
         info = medmnist.INFO["tissuemnist"]
         construct_dataset = getattr(medmnist, info["python_class"])
+        data_augmentation = [
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+        ]
         train_transform = [
             transforms.ToTensor(),
             transforms.Normalize((0.1020,), (0.1000,)),
@@ -98,6 +121,9 @@ def get_datasets(dataset_name: str, data_dir: str) -> dict[str, Dataset]:  # noq
         target_transform = transforms.Lambda(lambda x: x[0])
     else:
         raise ValueError(f"Dataset name: {dataset_name} not valid.".center(20, "="))
+
+    if use_data_augmentation:
+        train_transform = data_augmentation + train_transform
 
     if dataset_name in ("bloodmnist", "pathmnist", "tissuemnist"):
         train_data = construct_dataset(
@@ -191,9 +217,16 @@ def init_params(net):
                 torch.nn.init.constant(m.bias, 0)
 
 
-def make_model(architecture, in_channels=1, num_classes=10):
+def make_model(
+    architecture: str,
+    in_channels: int = 1,
+    num_classes: int = 10,
+    pretrained: bool = False,
+):
     if architecture == "cnn":
         model = Net_eNTK(in_channels, num_classes)
+    elif architecture == "small_resnet14":
+        model = small_resnet14(in_channels=in_channels, num_classes=num_classes)
     elif architecture == "small_resnet20":
         model = small_resnet20(in_channels=in_channels, num_classes=num_classes)
     elif architecture == "small_resnet32":
@@ -202,15 +235,43 @@ def make_model(architecture, in_channels=1, num_classes=10):
         model = small_resnet44(in_channels=in_channels, num_classes=num_classes)
     elif architecture == "small_resnet56":
         model = small_resnet56(in_channels=in_channels, num_classes=num_classes)
-    elif architecture == "resnet34":
-        model = models.resnet34()
+    elif architecture == "resnet18":
+        if pretrained:
+            model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+        else:
+            model = models.resnet18()
         model.conv1 = nn.Conv2d(
             in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
         )
-        model.bn1 = nn.BatchNorm2d(in_channels)
+        model.bn1 = nn.BatchNorm2d(64)
+        model.fc = nn.Linear(in_features=512, out_features=num_classes, bias=True)
+    elif architecture == "resnet34":
+        if pretrained:
+            model = models.resnet34(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+        else:
+            model = models.resnet34()
+        model.conv1 = nn.Conv2d(
+            in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
+        )
+        model.bn1 = nn.BatchNorm2d(64)
+        model.fc = nn.Linear(in_features=512, out_features=num_classes, bias=True)
+    elif architecture == "resnet50":
+        if pretrained:
+            model = models.resnet50(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+        else:
+            model = models.resnet50()
+        model.conv1 = nn.Conv2d(
+            in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
+        )
+        model.bn1 = nn.BatchNorm2d(64)
         model.fc = nn.Linear(in_features=512, out_features=num_classes, bias=True)
     elif architecture == "efficientnet-b0":
-        model = models.efficientnet_b0()
+        if pretrained:
+            model = models.efficientnet_b0(
+                weights=models.EfficientNet_B0_Weights.IMAGENET1K_V1
+            )
+        else:
+            model = models.efficientnet_b0()
         model.features[0][0] = nn.Conv2d(
             in_channels, 32, kernel_size=3, stride=2, padding=1, bias=False
         )
@@ -218,7 +279,12 @@ def make_model(architecture, in_channels=1, num_classes=10):
             in_features=1280, out_features=num_classes, bias=True
         )
     elif architecture == "efficientnet-b1":
-        model = models.efficientnet_b1()
+        if pretrained:
+            model = models.efficientnet_b1(
+                weights=models.EfficientNet_B0_Weights.IMAGENET1K_V1
+            )
+        else:
+            model = models.efficientnet_b1()
         model.features[0][0] = nn.Conv2d(
             in_channels, 32, kernel_size=3, stride=2, padding=1, bias=False
         )
@@ -226,7 +292,12 @@ def make_model(architecture, in_channels=1, num_classes=10):
             in_features=1280, out_features=num_classes, bias=True
         )
     elif architecture == "efficientnet-b2":
-        model = models.efficientnet_b2()
+        if pretrained:
+            model = models.efficientnet_b2(
+                weights=models.EfficientNet_B0_Weights.IMAGENET1K_V1
+            )
+        else:
+            model = models.efficientnet_b2()
         model.features[0][0] = nn.Conv2d(
             in_channels, 32, kernel_size=3, stride=2, padding=1, bias=False
         )
@@ -234,7 +305,12 @@ def make_model(architecture, in_channels=1, num_classes=10):
             in_features=1280, out_features=num_classes, bias=True
         )
     elif architecture == "efficientnet-b3":
-        model = models.efficientnet_b3()
+        if pretrained:
+            model = models.efficientnet_b3(
+                weights=models.EfficientNet_B0_Weights.IMAGENET1K_V1
+            )
+        else:
+            model = models.efficientnet_b3()
         model.features[0][0] = nn.Conv2d(
             in_channels, 32, kernel_size=3, stride=2, padding=1, bias=False
         )
@@ -242,7 +318,12 @@ def make_model(architecture, in_channels=1, num_classes=10):
             in_features=1280, out_features=num_classes, bias=True
         )
     elif architecture == "efficientnet-b4":
-        model = models.efficientnet_b4()
+        if pretrained:
+            model = models.efficientnet_b4(
+                weights=models.EfficientNet_B0_Weights.IMAGENET1K_V1
+            )
+        else:
+            model = models.efficientnet_b4()
         model.features[0][0] = nn.Conv2d(
             in_channels, 32, kernel_size=3, stride=2, padding=1, bias=False
         )
@@ -257,11 +338,28 @@ def make_model(architecture, in_channels=1, num_classes=10):
 def replace_last_layer(model, architecture, num_classes=1):
     if architecture == "cnn":
         model.fc2 = nn.Linear(128, num_classes).cuda()
-    elif architecture == "resnet":
+    elif architecture in (
+        "small_resnet14",
+        "small_resnet20",
+        "small_resnet32",
+        "small_resnet44",
+        "small_resnet56",
+    ):
+        model.linear = nn.Linear(64, 1)
+    elif architecture in (
+        "resnet18",
+        "resnet34",
+        "resenet50",
+    ):
         model.fc = nn.Linear(
             in_features=512, out_features=num_classes, bias=True
         ).cuda()
-    elif architecture == "efficientnet":
+    elif architecture in (
+        "efficientnet-b0",
+        "efficientnet-b1",
+        "efficientnet-b2",
+        "efficientnet-b3",
+    ):
         model.classifier[1] = nn.Linear(
             in_features=1280, out_features=num_classes, bias=True
         )
@@ -298,6 +396,7 @@ class Net(nn.Module):
 
 def client_update(client_model, optimizer, train_loader, epoch=5):
     """Train a client_model on the train_loder data."""
+    criterion = nn.CrossEntropyLoss().cuda()
     client_model.train()
     for e in range(epoch):
         total_loss = 0
@@ -305,8 +404,9 @@ def client_update(client_model, optimizer, train_loader, epoch=5):
             data, target = data.cuda(), target.cuda()
             optimizer.zero_grad()
             output = client_model(data)
-            score = F.log_softmax(output, dim=1)
-            loss = F.nll_loss(score, target)
+            # score = F.log_softmax(output, dim=1)
+            # loss = F.nll_loss(score, target)
+            loss = criterion(output, target)
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
@@ -315,16 +415,20 @@ def client_update(client_model, optimizer, train_loader, epoch=5):
 
 def average_models(global_model, client_models):
     """Average models across all clients."""
-    global_dict = global_model.state_dict()
+    global_dict = global_model.module.state_dict()
     for k in global_dict.keys():
         global_dict[k] = (
             torch.stack(
-                [client_models[i].state_dict()[k] for i in range(len(client_models))], 0
+                [
+                    client_models[i].module.state_dict()[k]
+                    for i in range(len(client_models))
+                ],
+                0,
             )
             .float()
             .mean(0)
         )
-    global_model.load_state_dict(global_dict)
+    global_model.module.load_state_dict(global_dict)
 
 
 def evaluate_model(model, data_loader, return_logits=False, num_batches=1):
@@ -398,34 +502,6 @@ class Net_eNTK(nn.Module):
         return x
 
 
-def compute_eNTK(model, X, subsample_size=100000, seed=123):
-    """ "compute eNTK"""
-    model.eval()
-    params = list(model.parameters())
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print("num_params:", num_params)
-    random_index = torch.randperm(num_params)[:subsample_size]
-    grads = None
-    for i in tqdm(range(X.size()[0])):
-        model.zero_grad()
-        model.forward(X[i : i + 1])[0].backward()
-
-        grad = []
-        for param in params:
-            if param.requires_grad:
-                grad.append(param.grad.flatten())
-        grad = torch.cat(grad)
-        grad = grad[random_index]
-
-        if grads is None:
-            grads = torch.zeros((X.size()[0], grad.size()[0]), dtype=torch.half)
-        grads[i, :] = grad
-
-    return grads
-
-
 def scaffold_update(
     grads_data,
     targets,
@@ -465,6 +541,34 @@ def scaffold_update(
     del grads_data
     torch.cuda.empty_cache()
     return theta_hat_local, h_i_client_update
+
+
+def compute_eNTK(model, X, subsample_size=100000, seed=123):
+    """ "compute eNTK"""
+    model.eval()
+    params = list(model.parameters())
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print("num_params:", num_params)
+    random_index = torch.randperm(num_params)[:subsample_size]
+    grads = None
+    for i in tqdm(range(X.size()[0])):
+        model.zero_grad()
+        model.forward(X[i : i + 1])[0].backward()
+
+        grad = []
+        for param in params:
+            if param.requires_grad:
+                grad.append(param.grad.flatten())
+        grad = torch.cat(grad)
+        grad = grad[random_index]
+
+        if grads is None:
+            grads = torch.zeros((X.size()[0], grad.size()[0]), dtype=torch.half)
+        grads[i, :] = grad
+
+    return grads
 
 
 def client_compute_eNTK(client_model, loader, num_batches=1, seed=123, num_classes=10):
