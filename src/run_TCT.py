@@ -7,6 +7,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from statistics import mean, stdev
 
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import matplotlib.pyplot as plt
@@ -53,20 +54,23 @@ def main():
     parser.add_argument("--architecture", default="cnn", type=str)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--start_from_stage2", action="store_true")
-    parser.add_argument("--num_workers", default=8, type=int)
-    parser.add_argument("--num_test_samples", default=5000, type=int)
+    parser.add_argument("--num_workers", default=16, type=int)
+    parser.add_argument("--num_test_samples", default=10000, type=int)
     parser.add_argument("--use_iid_partition", action="store_true")
     parser.add_argument("--central", action="store_true")
     parser.add_argument("--momentum", default=0.9, type=float)
     parser.add_argument("--use_data_augmentation", action="store_true")
     parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrick.csv", type=str)
     parser.add_argument("--pretrained", action="store_true")
+    parser.add_argument("--num_random_grad", default=100000, type=int)
     parser.add_argument(
         "--fitzpatrick_image_dir",
         default="/u/luchar/data/fitzpatrick17k/images",
         type=str,
     )
     args = vars(parser.parse_args())
+
+    start_time = time.perf_counter()
 
     # Set random seed for Repeatability
     seed = args["seed"]
@@ -93,8 +97,8 @@ def main():
     use_data_augmentation = args["use_data_augmentation"]
     fitzpatrick_csv = args["fitzpatrick_csv"]
     fitzpatrick_image_dir = args["fitzpatrick_image_dir"]
-    print(fitzpatrick_image_dir)
     pretrained = args["pretrained"]
+    num_random_grad = args["num_random_grad"]
 
     debug = args["debug"]  # debugging mode
     dataset_name = args["dataset"]
@@ -181,8 +185,8 @@ def main():
     elif dataset_name == "fitzpatrick":
         in_channels = 3
         num_classes = 114
-        num_clients = 6
-
+        num_clients = 12
+        client_label_map = None
     else:
         raise ValueError(f'dataset "{dataset_name}" not supported')
 
@@ -229,8 +233,9 @@ def main():
     figure_dir = save_dir / "figures"
     figure_dir.mkdir(exist_ok=True, parents=True)
 
-    with open(save_dir / "commands.txt", "w") as f:
-        json.dump(args, f, indent=4)
+    if not debug:
+        with open(save_dir / "commands.txt", "w") as f:
+            json.dump(args, f, indent=4)
 
     # Setup logging to write console output to file
     logger = logging.getLogger()
@@ -242,7 +247,7 @@ def main():
     logger.addHandler(console_handler)
 
     # write to file
-    file_handler = logging.FileHandler(save_dir / "history.log")
+    file_handler = logging.FileHandler(save_dir / "console.log")
     file_handler.setLevel(logging.DEBUG)
     logger.addHandler(file_handler)
 
@@ -251,12 +256,25 @@ def main():
     if dataset_name == "fitzpatrick":
         df = pd.read_csv(fitzpatrick_csv)
         skin_types = sorted(df.aggregated_fitzpatrick_scale.unique())
-        train_partition = {
-            str(st): df.query(
-                "aggregated_fitzpatrick_scale == @st and split == 'train'"
-            )
-            for st in skin_types
-        }
+        if not central:
+            assert len(skin_types) == num_clients
+        if use_iid_partition:
+            train_df = df.query("split == 'train'").sample(frac=1, random_state=seed)
+            samples_per_client = round(len(train_df) / num_clients)
+            train_partition = {
+                str(i): train_df[i * samples_per_client : (i + 1) * samples_per_client]
+                for i in range(num_clients)
+            }
+        else:
+            if central:
+                train_partition = {"central": df.query("split == 'train'")}
+            else:
+                train_partition = {
+                    str(st): df.query(
+                        "aggregated_fitzpatrick_scale == @st and split == 'train'"
+                    )
+                    for st in skin_types
+                }
         val_df = df.query("split == 'val'")
         test_df = df.query("split == 'test'")
         samplers = {
@@ -308,6 +326,20 @@ def main():
             pin_memory=True,
             shuffle=False,
         )
+
+        val_items = list(val_map.items())
+        test_items = list(test_map.items())
+        if val_dataset[0][1] != val_items[0][1]:
+            raise ValueError(f"{val_dataset[0][1]=} {val_items[0]=}")
+        if val_dataset[-1][1] != val_items[-1][1]:
+            raise ValueError(f"{val_dataset[-1][1]=} != {val_items[-1]=}")
+        if test_dataset[0][1] != test_items[0][1]:
+            raise ValueError(f"{test_dataset[0][1]=} != {test_items[0]=}")
+        if test_dataset[-1][1] != test_items[-1][1]:
+            raise ValueError(f"{test_dataset[-1][1]=} != {test_items[-1]=}")
+        val_df.to_csv(save_dir / "val_df.csv")
+        test_df.to_csv(save_dir / "test_df.csv")
+
     else:
         _datasets = get_datasets(
             dataset_name, data_dir, use_data_augmentation=use_data_augmentation
@@ -317,6 +349,7 @@ def main():
             client_label_map,
             samples_per_client,
             use_iid_partition=use_iid_partition,
+            seed=seed,
         )
         train_loaders = [
             DataLoader(
@@ -341,7 +374,7 @@ def main():
             val_split: float = 0.1
             num_val = round(val_split * len(test_dataset))
             rand_index = torch.randperm(len(test_dataset))
-            val_index = rand_index[:num_val][:num_test_samples]
+            val_index = rand_index[:num_val]
             test_index = rand_index[num_val:][:num_test_samples]
             val_subsample = Subset(test_dataset, val_index.tolist())
             test_subsample = Subset(test_dataset, test_index.tolist())
@@ -399,13 +432,14 @@ def main():
 
         logger.info(f"{len(client_models)=}")
         logger.info(f"{len(train_loaders)=}")
-        logger.info(f"{opt=}")
+        logger.info(f"{opt[0]=}")
 
         stage1_loss = collections.defaultdict(list)
         stage1_accuracy = collections.defaultdict(list)
+        stage1_max_score = collections.defaultdict(list)
 
         # Run TCT-Stage1 (i.e., FedAvg)
-        for r in range(num_rounds_stage1):
+        for r in range(1, num_rounds_stage1 + 1):
 
             # load global weights
             for model in client_models:
@@ -414,12 +448,14 @@ def main():
             # client update
             loss = 0
             for i in range(num_clients):
+                print(".", end="")
                 loss += client_update(
                     client_models[i],
                     opt[i],
                     train_loaders[i],
                     epoch=local_epochs_stage1,
                 )
+            loss /= num_clients
 
             # average params across neighbors
             average_models(global_model, client_models)
@@ -443,16 +479,41 @@ def main():
             clients_train_loss /= num_clients
             clients_train_acc /= num_clients
 
-            clients_test_loss, clients_test_acc = evaluate_many_models(
-                client_models,
-                test_loader,
-                num_batches=8,
-            )
-
             stage1_loss["clients_train"].append(clients_train_loss)
-            stage1_loss["clients_test"].append(clients_test_loss)
             stage1_accuracy["clients_train"].append(clients_train_acc)
-            stage1_accuracy["clients_test"].append(clients_test_acc)
+
+            # save mean and variance of client accuracy and max score
+
+            clients_test_loss = 0
+            clients_test_acc = []
+            clients_test_max_score = []
+            for i, model in enumerate(client_models):
+                test_loss, test_acc, logits, _ = evaluate_model(
+                    model,
+                    test_loader,
+                    num_batches=12,
+                    return_logits=True,
+                )
+                clients_test_loss += test_loss
+                clients_test_acc.append(test_acc)
+                clients_test_max_score.append(torch.softmax(logits, 1).argmax(1))
+
+            clients_test_loss /= num_clients
+            clients_test_max_score = torch.cat(clients_test_max_score).cpu().tolist()
+
+            stage1_loss["clients_test"].append(clients_test_loss)
+            stage1_accuracy["clients_test_mean"].append(
+                float(np.mean(clients_test_acc))
+            )
+            stage1_accuracy["clients_test_std"].append(float(np.std(clients_test_acc)))
+
+            # TODO debug max score (larger than 1)
+            stage1_max_score["clients_test_mean"].append(
+                float(np.mean(clients_test_max_score))
+            )
+            stage1_max_score["clients_test_std"].append(
+                float(np.std(clients_test_max_score))
+            )
 
             # evaluate global model
             global_train_loss, global_train_acc = 0, 0
@@ -466,7 +527,9 @@ def main():
             global_train_acc /= num_clients
 
             global_test_loss, global_test_acc = evaluate_model(
-                global_model, test_loader, num_batches=8
+                global_model,
+                test_loader,
+                num_batches=8,
             )
 
             stage1_loss["global_train"].append(global_train_loss)
@@ -476,15 +539,55 @@ def main():
 
             logger.info(
                 f"{str(r).zfill(3)} == clients =="
-                f"  train loss {clients_train_loss:.3f} "
+                f" {loss:.3f} train loss {clients_train_loss:.3f} "
                 f"| test loss {clients_test_loss:.3f} "
                 f"| train acc {clients_train_acc:.3f} "
-                f"| test acc {clients_test_acc:.3f} "
+                f"| test acc {mean(clients_test_acc):.3f} "
                 f"   == global model =="
                 f"  train loss {global_train_loss:.3f} "
                 f"| test loss {global_test_loss:.3f} "
                 f"| train acc {global_train_acc:.3f} "
                 f"| test acc {global_test_acc:.3f} "
+            )
+
+            if r % 50 == 0:
+                val_loss, val_acc, val_scores, val_targets = evaluate_model(
+                    global_model,
+                    val_loader,
+                    num_batches=len(val_loader),
+                    return_logits=True,
+                )
+                test_loss, test_acc, test_scores, test_targets = evaluate_model(
+                    global_model,
+                    test_loader,
+                    num_batches=len(test_loader),
+                    return_logits=True,
+                )
+                logger.info(
+                    f"global model -- {val_loss=:.3f} -- {val_acc=:.3f} -- {test_loss=:.3f} -- {test_acc=:.3f}"
+                )
+
+                torch.save(val_scores, score_dir / f"{save_name}_stage1_val_scores.pth")
+                torch.save(
+                    val_targets, score_dir / f"{save_name}_stage1_val_targets.pth"
+                )
+                torch.save(
+                    test_scores, score_dir / f"{save_name}_stage1_test_scores.pth"
+                )
+                torch.save(
+                    test_targets, score_dir / f"{save_name}_stage1_test_targets.pth"
+                )
+
+        with open(save_dir / "history.json", "w") as f:
+            json.dump(
+                dict(
+                    loss=stage1_loss,
+                    accuracy=stage1_accuracy,
+                    score=stage1_max_score,
+                ),
+                f,
+                indent=4,
+                default=float,
             )
 
         fig, ax = plt.subplots(ncols=2, figsize=(16, 5))
@@ -497,7 +600,7 @@ def main():
         ax[0].set_ylabel("loss", fontsize=fontsize)
         ax[0].legend(fontsize=fontsize)
         ax[1].plot(stage1_accuracy["clients_train"], ".:", label="clients_train")
-        ax[1].plot(stage1_accuracy["clients_test"], ".:", label="clients_test")
+        ax[1].plot(stage1_accuracy["clients_test_mean"], ".:", label="clients_test")
         ax[1].plot(stage1_accuracy["global_train"], "o--", label="global_train")
         ax[1].plot(stage1_accuracy["global_test"], "o--", label="global_test")
         ax[1].set_xlabel("round", fontsize=fontsize)
@@ -505,90 +608,165 @@ def main():
         ax[1].legend(fontsize=fontsize)
         plt.savefig(figure_dir / f"{save_name}_stage1_loss_curve.png")
 
-        val_loss, val_acc, val_scores, val_targets = evaluate_model(
-            global_model, val_loader, return_logits=True, num_batches=len(val_loader)
-        )
-        test_loss, test_acc, test_scores, test_targets = evaluate_model(
-            global_model, test_loader, return_logits=True, num_batches=len(test_loader)
-        )
-
-        if not debug:
-            torch.save(val_scores, score_dir / f"{save_name}_stage1_val_scores.pth")
-            torch.save(val_targets, score_dir / f"{save_name}_stage1_val_targets.pth")
-            torch.save(test_scores, score_dir / f"{save_name}_stage1_test_scores.pth")
-            torch.save(test_targets, score_dir / f"{save_name}_stage1_test_targets.pth")
-
-        logger.info(
-            f"global model -- {val_loss=:.3f} -- {val_acc=:.3f} -- {test_loss=:.3f} -- {test_acc=:.3f}"
-        )
-
     if num_rounds_stage2 != 0 and experiment == "tct":
+
+        # turn off data augmentation in training datasets
+        if dataset_name == "fitzpatrick":
+            if use_iid_partition:
+                train_df = df.query("split == 'train'").sample(
+                    frac=1, random_state=seed
+                )
+                samples_per_client = round(len(train_df) / num_clients)
+                train_partition = {
+                    str(i): train_df[
+                        i * samples_per_client : (i + 1) * samples_per_client
+                    ]
+                    for i in range(num_clients)
+                }
+            else:
+                train_partition = {
+                    str(st): df.query(
+                        "aggregated_fitzpatrick_scale == @st and split == 'train'"
+                    )
+                    for st in skin_types
+                }
+            train_datasets = {
+                str(st): SkinDataset(
+                    image_dir=fitzpatrick_image_dir,
+                    label_mapping=dict(df[["md5hash", "target"]].values),
+                    transform=TEST_TRANSFORM,
+                )
+                for st, df in train_partition.items()
+            }
+            train_loaders = [
+                DataLoader(
+                    ds,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    num_workers=num_workers,
+                    pin_memory=True,
+                )
+                for st, ds in train_datasets.items()
+            ]
+        else:
+            _datasets = get_datasets(
+                dataset_name, data_dir, use_data_augmentation=False
+            )
+            client_train_datasets = partition_dataset(
+                _datasets["train"],
+                client_label_map,
+                samples_per_client,
+                use_iid_partition=use_iid_partition,
+                seed=seed,
+            )
+            train_loaders = [
+                DataLoader(
+                    train_subset,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    num_workers=num_workers,
+                    pin_memory=True,
+                )
+                for train_subset in client_train_datasets.values()
+            ]
+
         logger.info(" Start Stage-2 ".center(20, "="))
         checkpoint = checkpoint_dir / f"{save_name}_stage1_model.pth"
+        logger.info(f"{checkpoint=}")
 
         # Init and load model ckpt
         global_model = make_model(architecture, in_channels, num_classes).cuda()
         global_model.load_state_dict(torch.load(checkpoint))
+        global_model = global_model.cuda()
+
+        # TODO find out why train accuracy is so low here
+        train_loss, train_acc = 0, 0
+        for i in range(num_clients):
+            train_loss, train_acc = evaluate_model(
+                global_model,
+                train_loaders[i],
+                num_batches=len(train_loaders[i]),
+            )
+            train_loss += train_loss
+            train_acc += train_acc
+        train_loss /= num_clients
+        train_acc /= num_clients
+
+        test_loss, test_acc, test_scores, test_targets = evaluate_model(
+            global_model, test_loader, return_logits=True, num_batches=len(test_loader)
+        )
+        logger.info(
+            f"stage2 model -- {train_loss=:.3f} -- {train_acc=:.3f} -- {test_loss=:.3f} -- {test_acc=:.3f}"
+        )
 
         global_model = replace_last_layer(global_model, architecture, num_classes=1)
         global_model = global_model.cuda()
-
         logger.info("loaded eNTK model")
 
-        # Compute eNTK representations
-
+        logger.info("Compute eNTK representations")
         # Train
         grad_all = []
         target_all = []
         for i in range(num_clients):
-            grad_i, target_onehot_i, target_i = client_compute_eNTK(
+            grad_i, target_i = compute_eNTK(
                 global_model,
                 train_loaders[i],
-                num_batches=len(train_loaders[i]),
+                subsample_size=num_random_grad,
                 seed=seed,
                 num_classes=num_classes,
             )
             grad_all.append(copy.deepcopy(grad_i).cpu())
             target_all.append(copy.deepcopy(target_i).cpu())
             del grad_i
-            del target_onehot_i
             del target_i
             torch.cuda.empty_cache()
 
+        assert len(grad_all) == num_clients
+
         # Test
-        grad_test, target_test_onehot, target_test = client_compute_eNTK(
-            global_model, test_loader, num_batches=len(test_loader), seed=seed
+        grad_test, target_test = compute_eNTK(
+            global_model,
+            test_loader,
+            subsample_size=num_random_grad,
+            seed=seed,
+            num_classes=num_classes,
         )
 
         # For calibration
-        grad_val, target_val_onehot, target_val = client_compute_eNTK(
-            global_model, val_loader, num_batches=len(val_loader), seed=seed
+        grad_val, target_val = compute_eNTK(
+            global_model,
+            val_loader,
+            subsample_size=num_random_grad,
+            seed=seed,
+            num_classes=num_classes,
         )
 
         # normalization
+        logger.info("normalization")
         scaler = StandardScaler()
+        # TODO log normalization scale
+        #logger.info(f"{len(grad_all[0])=}")
+        # scaler.fit(torch.cat([grad[torch.randperm(grad.shape[0])[:20000] for grad in grad_all]]).cpu().numpy())
         scaler.fit(torch.cat(grad_all).cpu().numpy())
         for idx in range(len(grad_all)):
+            print(".", end="")
             grad_all[idx] = torch.from_numpy(
                 scaler.transform(grad_all[idx].cpu().numpy())
             )
-        grad_test = torch.from_numpy(scaler.transform(grad_test.cpu().numpy())).cuda()
-        grad_val = torch.from_numpy(scaler.transform(grad_val.cpu().numpy())).cuda()
+        grad_test = torch.from_numpy(scaler.transform(grad_test.cpu().numpy()))
+        grad_val = torch.from_numpy(scaler.transform(grad_val.cpu().numpy()))
 
         # Init linear models
-        theta_global = torch.zeros(100000, num_classes).cuda()
+        theta_global = torch.zeros(num_random_grad, num_classes)
         theta_global = torch.tensor(theta_global, requires_grad=False)
-        client_thetas = [
-            torch.zeros_like(theta_global).cuda() for _ in range(num_clients)
-        ]
-        client_hi_s = [
-            torch.zeros_like(theta_global).cuda() for _ in range(num_clients)
-        ]
+        client_thetas = [torch.zeros_like(theta_global) for _ in range(num_clients)]
+        client_hi_s = [torch.zeros_like(theta_global) for _ in range(num_clients)]
 
         # Run TCT-Stage2
         for round_idx in range(num_rounds_stage2):
             theta_list = []
             for i in range(num_clients):
+                print(".", end="")
                 theta_hat_update, h_i_client_update = scaffold_update(
                     grad_all[i],
                     target_all[i],
@@ -604,7 +782,7 @@ def main():
                 theta_list.append(theta_hat_update)
 
             # averaging
-            theta_global = torch.zeros_like(theta_list[0]).cuda()
+            theta_global = torch.zeros_like(theta_list[0])
             for theta_idx in range(num_clients):
                 theta_global += (1.0 / num_clients) * theta_list[theta_idx]
 
@@ -630,10 +808,10 @@ def main():
 
             logger.info(f"{round_idx=}: {train_acc=:.3f} {test_acc=:.3f}")
 
-            logger.debug(f"{torch.cat(grad_all).shape=}")
-            logger.debug(f"{grad_test.shape=}")
-            logger.debug(f"{theta_global.shape=}")
-            logger.debug(f"{train_max_score=:.3f} {test_max_score=:.3f}")
+            #logger.debug(f"{torch.cat(grad_all).shape=}")
+            #logger.debug(f"{grad_test.shape=}")
+            #logger.debug(f"{theta_global.shape=}")
+            #logger.debug(f"{train_max_score=:.3f} {test_max_score=:.3f}")
 
         if not debug:
             torch.save(
@@ -653,8 +831,13 @@ def main():
 
         logger.info(" Finished TCT Stage-2 ".center(20, "="))
 
-    # sys.stdout.close()
-    # sys.stdout = original_stdout
+    end_time = time.perf_counter()
+    total_runtime = end_time - start_time
+    logger.info(f"total runtime {total_runtime:.0f}")
+
+    if not debug:
+        with open(save_dir / "finished.txt", "w") as f:
+            f.write(f"total runtime: {total_runtime:.0f}")
 
 
 if __name__ == "__main__":

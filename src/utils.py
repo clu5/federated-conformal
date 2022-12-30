@@ -170,11 +170,17 @@ def partition_dataset(
     client_label_map: dict[str, list[int]],
     samples_per_client: int,
     use_iid_partition: bool = False,
+    seed: int = 123
 ) -> dict[str, Dataset]:
     client_datasets: dict[str, Dataset] = {}
 
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+
     if use_iid_partition:
         perm = torch.randperm(len(dataset))
+        num_clients = len(client_label_map)
+        samples_per_client = round(len(dataset) / num_clients)
         for i, client in enumerate(client_label_map.keys()):
             client_datasets[client] = Subset(
                 dataset, perm[i * samples_per_client : (i + 1) * samples_per_client]
@@ -515,6 +521,9 @@ def scaffold_update(
     # set up data / eNTK
     grads_data = grads_data.float().cuda()
     targets = targets.cuda()
+    theta_client = theta_client.cuda()
+    h_i_client_pre = h_i_client_pre.cuda()
+    theta_global = theta_global.cuda()
 
     # compute transformed onehot label
     targets_onehot = F.one_hot(targets, num_classes=num_classes).cuda() - (
@@ -539,36 +548,47 @@ def scaffold_update(
 
     del targets
     del grads_data
+    del theta_client
+    del theta_global
+    del h_i_client_pre
     torch.cuda.empty_cache()
     return theta_hat_local, h_i_client_update
 
 
-def compute_eNTK(model, X, subsample_size=100000, seed=123):
+def compute_eNTK(model, loader, subsample_size=100000, seed=123, num_classes=10):
     """ "compute eNTK"""
     model.eval()
     params = list(model.parameters())
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
+
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("num_params:", num_params)
+
     random_index = torch.randperm(num_params)[:subsample_size]
-    grads = None
-    for i in tqdm(range(X.size()[0])):
+    dataset = loader.dataset
+    grads = torch.zeros((len(dataset), len(random_index)), dtype=torch.float)
+    targets = []
+
+    for i, (x, y) in tqdm(enumerate(dataset)):
         model.zero_grad()
-        model.forward(X[i : i + 1])[0].backward()
+        model.forward(x.unsqueeze(0).cuda())[0].backward()
 
         grad = []
         for param in params:
             if param.requires_grad:
                 grad.append(param.grad.flatten())
-        grad = torch.cat(grad)
-        grad = grad[random_index]
 
-        if grads is None:
-            grads = torch.zeros((X.size()[0], grad.size()[0]), dtype=torch.half)
-        grads[i, :] = grad
+        grads[i, :] = torch.cat(grad)[random_index]
 
-    return grads
+        targets.append(y)
+
+    # gradient
+    # targets_onehot = F.one_hot(torch.cat(targets), num_classes=num_classes) - (
+    #     1.0 / num_classes
+    # )
+
+    return grads, torch.tensor(targets)
 
 
 def client_compute_eNTK(client_model, loader, num_batches=1, seed=123, num_classes=10):
