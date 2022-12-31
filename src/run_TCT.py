@@ -221,6 +221,10 @@ def main():
     save_dir = Path(args["save_dir"]) / save_name
     data_dir = Path(args["data_dir"])
 
+
+    if (save_dir / "finished.txt").exists():
+        exit()
+
     save_dir.mkdir(exist_ok=True, parents=True)
     data_dir.mkdir(exist_ok=True, parents=True)
 
@@ -238,8 +242,8 @@ def main():
             json.dump(args, f, indent=4)
 
     # Setup logging to write console output to file
-    logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
 
     # print to stdout
     console_handler = logging.StreamHandler()

@@ -180,7 +180,7 @@ def partition_dataset(
     if use_iid_partition:
         perm = torch.randperm(len(dataset))
         num_clients = len(client_label_map)
-        samples_per_client = round(len(dataset) / num_clients)
+        # samples_per_client = round(len(dataset) / num_clients)
         for i, client in enumerate(client_label_map.keys()):
             client_datasets[client] = Subset(
                 dataset, perm[i * samples_per_client : (i + 1) * samples_per_client]
