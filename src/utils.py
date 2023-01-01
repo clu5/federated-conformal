@@ -1,7 +1,7 @@
 import argparse
 import copy
 import sys
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 
 import medmnist
 import numpy as np
@@ -22,6 +22,10 @@ def get_datasets(
 ) -> Dict[str, Dataset]:
     if dataset_name == "mnist":
         construct_dataset = datasets.MNIST
+        data_augmentation = [
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+        ]
         train_transform = [
             transforms.ToTensor(),
             transforms.Normalize((0.1307,), (0.3081,)),
@@ -43,6 +47,20 @@ def get_datasets(
         test_transform = [
             transforms.ToTensor(),
             transforms.Normalize((0.2860,), (0.3530,)),
+        ]
+    elif dataset_name == "svhn":
+        construct_dataset = datasets.SVHN
+        data_augmentation = [
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+        ]
+        train_transform = [
+            transforms.ToTensor(),
+            transforms.Normalize((0.4377, 0.4438, 0.4728), (0.1980, 0.2010, 0.1970)),
+        ]
+        test_transform = [
+            transforms.ToTensor(),
+            transforms.Normalize((0.4377, 0.4438, 0.4728), (0.1980, 0.2010, 0.1970)),
         ]
     elif dataset_name == "cifar10":
         construct_dataset = datasets.CIFAR10
@@ -88,6 +106,22 @@ def get_datasets(
             transforms.Normalize((0.7943, 0.6597, 0.6962), (0.2156, 0.2416, 0.1179)),
         ]
         target_transform = transforms.Lambda(lambda x: x[0])
+    elif dataset_name == "dermamnist":
+        info = medmnist.INFO["dermamnist"]
+        construct_dataset = getattr(medmnist, info["python_class"])
+        data_augmentation = [
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+        ]
+        train_transform = [
+            transforms.ToTensor(),
+            transforms.Normalize((0.7631, 0.5380, 0.5613), (0.1366, 0.1542, 0.1692)),
+        ]
+        test_transform = [
+            transforms.ToTensor(),
+            transforms.Normalize((0.7631, 0.5380, 0.5613), (0.1366, 0.1542, 0.1692)),
+        ]
+        target_transform = transforms.Lambda(lambda x: x[0])
     elif dataset_name == "pathmnist":
         info = medmnist.INFO["pathmnist"]
         construct_dataset = getattr(medmnist, info["python_class"])
@@ -126,7 +160,7 @@ def get_datasets(
     if use_data_augmentation:
         train_transform = data_augmentation + train_transform
 
-    if dataset_name in ("bloodmnist", "pathmnist", "tissuemnist"):
+    if dataset_name in ("bloodmnist", "dermamnist", "pathmnist", "tissuemnist"):
         train_data = construct_dataset(
             split="train",
             root=data_dir,
@@ -152,6 +186,20 @@ def get_datasets(
             target_transform=target_transform,
         )
         return {"train": train_data, "val": val_data, "test": test_data}
+    elif dataset_name == "svhn":
+        train_data = construct_dataset(
+            data_dir,
+            split="train",
+            download=True,
+            transform=transforms.Compose(train_transform),
+        )
+        test_data = construct_dataset(
+            data_dir,
+            split="test",
+            download=True,
+            transform=transforms.Compose(test_transform),
+        )
+        return {"train": train_data, "test": test_data}
     else:
         train_data = construct_dataset(
             data_dir,
@@ -213,7 +261,7 @@ def partition_dataset(
     return client_datasets
 
 
-def init_params(net):
+def init_params(net: torch.nn.Module):
     """Init layer parameters."""
     for m in net.modules():
         if isinstance(m, nn.Conv2d):
@@ -234,7 +282,7 @@ def make_model(
     in_channels: int = 1,
     num_classes: int = 10,
     pretrained: bool = False,
-):
+) -> torch.nn.Module:
     if architecture == "cnn":
         model = Net_eNTK(in_channels, num_classes)
     elif architecture == "small_resnet14":
@@ -347,7 +395,7 @@ def make_model(
     return model
 
 
-def replace_last_layer(model, architecture, num_classes=1):
+def replace_last_layer(model: torch.nn.Module, architecture: str, num_classes: int = 1):
     if architecture == "cnn":
         model.fc2 = nn.Linear(128, num_classes).cuda()
     elif architecture in (
@@ -390,7 +438,7 @@ class Net(nn.Module):
         self.fc1 = nn.Linear(2048, 128)
         self.fc2 = nn.Linear(128, out_channels)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.conv1(x)
         x = F.relu(x)
         x = self.conv2(x)
@@ -406,7 +454,12 @@ class Net(nn.Module):
         return x
 
 
-def client_update(client_model, optimizer, train_loader, epoch=5):
+def client_update(
+    client_model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    train_loader: DataLoader,
+    epoch: int = 5,
+) -> float:
     """Train a client_model on the train_loder data."""
     criterion = nn.CrossEntropyLoss().cuda()
     client_model.train()
@@ -425,7 +478,9 @@ def client_update(client_model, optimizer, train_loader, epoch=5):
     return total_loss / len(train_loader)
 
 
-def average_models(global_model, client_models):
+def average_models(
+    global_model: torch.nn.Module, client_models: List[torch.nn.Module]
+) -> None:
     """Average models across all clients."""
     global_dict = global_model.module.state_dict()
     for k in global_dict.keys():
@@ -443,7 +498,12 @@ def average_models(global_model, client_models):
     global_model.module.load_state_dict(global_dict)
 
 
-def evaluate_model(model, data_loader, return_logits=False, num_batches=1):
+def evaluate_model(
+    model: torch.nn.Module,
+    data_loader: DataLoader,
+    return_logits: bool = False,
+    num_batches: int = 1,
+) -> Union[Tuple[float, float], Tuple[float, float, torch.Tensor, torch.Tensor]]:
     """Compute loss and accuracy of a single model on a data_loader."""
     model.eval()
     loss = 0
@@ -479,7 +539,9 @@ def evaluate_model(model, data_loader, return_logits=False, num_batches=1):
         return loss, acc
 
 
-def evaluate_many_models(models, data_loader, num_batches=1):
+def evaluate_many_models(
+    models: List[torch.nn.Module], data_loader: List[DataLoader], num_batches: int = 1
+) -> Tuple[float, float]:
     """Compute average loss and accuracy of multiple models on a data_loader."""
     num_models = len(models)
     total_loss = 0
@@ -500,7 +562,7 @@ class Net_eNTK(nn.Module):
         self.fc1 = nn.Linear(2048, 128)
         self.fc2 = nn.Linear(128, out_channels)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.conv1(x)
         x = F.relu(x)
         x = self.conv2(x)
@@ -515,15 +577,15 @@ class Net_eNTK(nn.Module):
 
 
 def scaffold_update(
-    grads_data,
-    targets,
-    theta_client,
-    h_i_client_pre,
-    theta_global,
-    M=200,
-    lr_local=0.00001,
-    num_classes=10,
-):
+    grads_data: torch.Tensor,
+    targets: torch.Tensor,
+    theta_client: torch.Tensor,
+    h_i_client_pre: torch.Tensor,
+    theta_global: torch.Tensor,
+    M: int = 200,
+    lr_local: float = 0.00001,
+    num_classes: int = 10,
+) -> Tuple[torch.Tensor, torch.Tensor]:
     # set up data / eNTK
     grads_data = grads_data.float().cuda()
     targets = targets.cuda()
@@ -561,7 +623,13 @@ def scaffold_update(
     return theta_hat_local, h_i_client_update
 
 
-def compute_eNTK(model, loader, subsample_size=100000, seed=123, num_classes=10):
+def compute_eNTK(
+    model: torch.nn.Module,
+    loader: DataLoader,
+    subsample_size: int = 100000,
+    seed: int = 123,
+    num_classes: int = 10,
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """ "compute eNTK"""
     model.eval()
     params = list(model.parameters())
@@ -589,35 +657,4 @@ def compute_eNTK(model, loader, subsample_size=100000, seed=123, num_classes=10)
 
         targets.append(y)
 
-    # gradient
-    # targets_onehot = F.one_hot(torch.cat(targets), num_classes=num_classes) - (
-    #     1.0 / num_classes
-    # )
-
     return grads, torch.tensor(targets)
-
-
-def client_compute_eNTK(client_model, loader, num_batches=1, seed=123, num_classes=10):
-    """Train a client_model on the train_loder data."""
-    it = iter(loader)
-    data = []
-    targets = []
-    for _ in range(num_batches):
-        _data, _targets = next(it)
-        data.append(_data)
-        targets.append(_targets)
-
-    data = torch.cat(data)
-    targets = torch.cat(targets)
-
-    grads_data = compute_eNTK(client_model, data.cuda(), seed=seed)
-    grads_data = grads_data.float().cuda()
-    targets = targets.cuda()
-
-    # gradient
-    targets_onehot = F.one_hot(targets, num_classes=num_classes).cuda() - (
-        1.0 / num_classes
-    )
-    del data
-    torch.cuda.empty_cache()
-    return grads_data, targets_onehot, targets
