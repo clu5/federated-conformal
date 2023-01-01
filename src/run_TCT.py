@@ -27,10 +27,10 @@ from tqdm import tqdm
 
 from skin_dataset import (TEST_TRANSFORM, TRAIN_TRANSFORM, SkinDataset,
                           get_weighted_sampler)
-from utils import (Net, Net_eNTK, average_models, client_compute_eNTK,
-                   client_update, compute_eNTK, evaluate_many_models,
-                   evaluate_model, get_datasets, make_model, partition_dataset,
-                   replace_last_layer, scaffold_update)
+from utils import (Net, Net_eNTK, average_models, client_update, compute_eNTK,
+                   evaluate_many_models, evaluate_model, get_datasets,
+                   make_model, partition_dataset, replace_last_layer,
+                   scaffold_update)
 
 plt.style.use("seaborn")
 
@@ -63,6 +63,7 @@ def main():
     parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrick.csv", type=str)
     parser.add_argument("--pretrained", action="store_true")
     parser.add_argument("--num_random_grad", default=100000, type=int)
+    parser.add_argument("--start_from_stage1", action="store_true")
     parser.add_argument(
         "--fitzpatrick_image_dir",
         default="/u/luchar/data/fitzpatrick17k/images",
@@ -88,6 +89,7 @@ def main():
     num_local_steps = args["local_steps_stage2"]
     lr_stage2 = args["local_lr_stage2"]
     architecture = args["architecture"]
+    start_from_stage1 = args["start_from_stage1"]
     start_from_stage2 = args["start_from_stage2"]
     num_workers = args["num_workers"]
     num_test_samples = args["num_test_samples"]
@@ -105,6 +107,17 @@ def main():
 
     if dataset_name == "mnist":
         in_channels = 1
+        num_classes = 10
+        num_clients = 5
+        client_label_map = {
+            "client_1": [0, 1],
+            "client_2": [2, 3],
+            "client_3": [4, 5],
+            "client_4": [6, 7],
+            "client_5": [8, 9],
+        }
+    elif dataset_name == "svhn":
+        in_channels = 3
         num_classes = 10
         num_clients = 5
         client_label_map = {
@@ -161,6 +174,15 @@ def main():
             "client_2": [2, 3],
             "client_3": [4, 5],
             "client_4": [6, 7],
+        }
+    elif dataset_name == "dermamnist":
+        in_channels = 3
+        num_classes = 7
+        num_clients = 3
+        client_label_map = {
+            "client_1": [0, 1],
+            "client_2": [2, 3],
+            "client_3": [4, 5, 6],
         }
     elif dataset_name == "pathmnist":
         in_channels = 3
@@ -220,7 +242,6 @@ def main():
     # Make directory to write outputs
     save_dir = Path(args["save_dir"]) / save_name
     data_dir = Path(args["data_dir"])
-
 
     if (save_dir / "finished.txt").exists():
         exit()
@@ -423,6 +444,18 @@ def main():
             ).cuda()
             for _ in range(num_clients)
         ]
+
+        if start_from_stage1:
+            checkpoint = max(
+                checkpoint_dir.glob(f"{save_name}_stage1_model_*.pth"),
+                key=lambda x: int(x.stem.split("_")[-1]),
+            )
+            global_model.module.load_state_dict(torch.load(checkpoint))
+            r = int(checkpoint.stem.split("_")[-1])
+            logger.info(f"starting stage 1 with {checkpoint} at round {r}")
+        else:
+            r = 1
+
         for model in client_models:
             model.module.load_state_dict(global_model.module.state_dict())
         opt = [
@@ -443,7 +476,7 @@ def main():
         stage1_max_score = collections.defaultdict(list)
 
         # Run TCT-Stage1 (i.e., FedAvg)
-        for r in range(1, num_rounds_stage1 + 1):
+        for r in range(r, num_rounds_stage1 + 1):
 
             # load global weights
             for model in client_models:
@@ -467,7 +500,7 @@ def main():
             # save global model
             torch.save(
                 global_model.module.state_dict(),
-                checkpoint_dir / f"{save_name}_stage1_model.pth",
+                checkpoint_dir / f"{save_name}_stage1_model_{r}.pth",
             )
 
             # evaluate clients
@@ -749,7 +782,7 @@ def main():
         logger.info("normalization")
         scaler = StandardScaler()
         # TODO log normalization scale
-        #logger.info(f"{len(grad_all[0])=}")
+        # logger.info(f"{len(grad_all[0])=}")
         # scaler.fit(torch.cat([grad[torch.randperm(grad.shape[0])[:20000] for grad in grad_all]]).cpu().numpy())
         scaler.fit(torch.cat(grad_all).cpu().numpy())
         for idx in range(len(grad_all)):
@@ -812,10 +845,10 @@ def main():
 
             logger.info(f"{round_idx=}: {train_acc=:.3f} {test_acc=:.3f}")
 
-            #logger.debug(f"{torch.cat(grad_all).shape=}")
-            #logger.debug(f"{grad_test.shape=}")
-            #logger.debug(f"{theta_global.shape=}")
-            #logger.debug(f"{train_max_score=:.3f} {test_max_score=:.3f}")
+            # logger.debug(f"{torch.cat(grad_all).shape=}")
+            # logger.debug(f"{grad_test.shape=}")
+            # logger.debug(f"{theta_global.shape=}")
+            # logger.debug(f"{train_max_score=:.3f} {test_max_score=:.3f}")
 
         if not debug:
             torch.save(
