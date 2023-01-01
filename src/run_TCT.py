@@ -65,7 +65,7 @@ def main():
     parser.add_argument("--num_random_grad", default=100000, type=int)
     parser.add_argument(
         "--fitzpatrick_image_dir",
-        default="/u/luchar/data/fitzpatrick17k/images",
+        default="../data/fitzpatrick17k/images",
         type=str,
     )
     args = vars(parser.parse_args())
@@ -96,7 +96,7 @@ def main():
     momentum = args["momentum"]
     use_data_augmentation = args["use_data_augmentation"]
     fitzpatrick_csv = args["fitzpatrick_csv"]
-    fitzpatrick_image_dir = args["fitzpatrick_image_dir"]
+    fitzpatrick_image_dir = Path(args["fitzpatrick_image_dir"]).resolve()
     pretrained = args["pretrained"]
     num_random_grad = args["num_random_grad"]
 

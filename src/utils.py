@@ -1,6 +1,7 @@
 import argparse
 import copy
 import sys
+from typing import Dict, List, Tuple
 
 import medmnist
 import numpy as np
@@ -18,7 +19,7 @@ from resnet import (small_resnet14, small_resnet20, small_resnet32,
 
 def get_datasets(
     dataset_name: str, data_dir: str, use_data_augmentation: bool = False
-) -> dict[str, Dataset]:
+) -> Dict[str, Dataset]:
     if dataset_name == "mnist":
         construct_dataset = datasets.MNIST
         train_transform = [
@@ -129,21 +130,24 @@ def get_datasets(
         train_data = construct_dataset(
             split="train",
             root=data_dir,
-            download=True,
+            download=False,
+            #download=True,
             transform=transforms.Compose(train_transform),
             target_transform=target_transform,
         )
         val_data = construct_dataset(
             split="val",
             root=data_dir,
-            download=True,
+            download=False,
+            #download=True,
             transform=transforms.Compose(test_transform),
             target_transform=target_transform,
         )
         test_data = construct_dataset(
             split="test",
             root=data_dir,
-            download=True,
+            download=False,
+            #download=True,
             transform=transforms.Compose(test_transform),
             target_transform=target_transform,
         )
@@ -152,13 +156,15 @@ def get_datasets(
         train_data = construct_dataset(
             data_dir,
             train=True,
-            download=True,
+            download=False,
+            #download=True,
             transform=transforms.Compose(train_transform),
         )
         test_data = construct_dataset(
             data_dir,
             train=False,
-            download=True,
+            download=False,
+            #download=True,
             transform=transforms.Compose(test_transform),
         )
 
@@ -167,12 +173,12 @@ def get_datasets(
 
 def partition_dataset(
     dataset: Dataset,
-    client_label_map: dict[str, list[int]],
+    client_label_map: Dict[str, List[int]],
     samples_per_client: int,
     use_iid_partition: bool = False,
-    seed: int = 123
-) -> dict[str, Dataset]:
-    client_datasets: dict[str, Dataset] = {}
+    seed: int = 123,
+) -> Dict[str, Dataset]:
+    client_datasets: Dict[str, Dataset] = {}
 
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)

@@ -1,6 +1,6 @@
 import pathlib
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Union
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -43,7 +43,7 @@ class SkinDataset(Dataset):
     def __init__(
         self,
         image_dir: str,
-        label_mapping: dict[str, int],
+        label_mapping: Dict[str, int],
         transform: transforms.Compose,
     ):
         super().__init__()
@@ -55,7 +55,7 @@ class SkinDataset(Dataset):
     def __len__(self) -> int:
         return len(self.images)
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, int]:
         image_path = self.image_dir / self.images[index]
         image = Image.open(image_path.with_suffix(".jpg"))
         image = self.transform(image)
