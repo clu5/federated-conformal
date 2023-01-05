@@ -60,7 +60,7 @@ def main():
     parser.add_argument("--central", action="store_true")
     parser.add_argument("--momentum", default=0.9, type=float)
     parser.add_argument("--use_data_augmentation", action="store_true")
-    parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrick.csv", type=str)
+    parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrickv2.csv", type=str)
     parser.add_argument("--pretrained", action="store_true")
     parser.add_argument("--num_random_grad", default=100000, type=int)
     parser.add_argument("--start_from_stage1", action="store_true")
@@ -207,7 +207,7 @@ def main():
     elif dataset_name == "fitzpatrick":
         in_channels = 3
         num_classes = 114
-        num_clients = 12
+        num_clients = 11
         client_label_map = None
     else:
         raise ValueError(f'dataset "{dataset_name}" not supported')
@@ -498,10 +498,11 @@ def main():
             average_models(global_model, client_models)
 
             # save global model
-            torch.save(
-                global_model.module.state_dict(),
-                checkpoint_dir / f"{save_name}_stage1_model_{r}.pth",
-            )
+            if r % 25 == 0:
+                torch.save(
+                    global_model.module.state_dict(),
+                    checkpoint_dir / f"{save_name}_stage1_model_{r}.pth",
+                )
 
             # evaluate clients
             clients_train_loss, clients_train_acc = 0, 0
@@ -708,7 +709,7 @@ def main():
             ]
 
         logger.info(" Start Stage-2 ".center(20, "="))
-        checkpoint = checkpoint_dir / f"{save_name}_stage1_model.pth"
+        checkpoint = checkpoint_dir / f"{save_name}_stage1_model_{num_rounds_stage1}.pth"
         logger.info(f"{checkpoint=}")
 
         # Init and load model ckpt

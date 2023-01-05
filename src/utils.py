@@ -165,7 +165,7 @@ def get_datasets(
             split="train",
             root=data_dir,
             download=False,
-            #download=True,
+            # download=True,
             transform=transforms.Compose(train_transform),
             target_transform=target_transform,
         )
@@ -173,7 +173,7 @@ def get_datasets(
             split="val",
             root=data_dir,
             download=False,
-            #download=True,
+            # download=True,
             transform=transforms.Compose(test_transform),
             target_transform=target_transform,
         )
@@ -181,7 +181,7 @@ def get_datasets(
             split="test",
             root=data_dir,
             download=False,
-            #download=True,
+            # download=True,
             transform=transforms.Compose(test_transform),
             target_transform=target_transform,
         )
@@ -205,14 +205,14 @@ def get_datasets(
             data_dir,
             train=True,
             download=False,
-            #download=True,
+            # download=True,
             transform=transforms.Compose(train_transform),
         )
         test_data = construct_dataset(
             data_dir,
             train=False,
             download=False,
-            #download=True,
+            # download=True,
             transform=transforms.Compose(test_transform),
         )
 
@@ -307,7 +307,7 @@ def make_model(
         model.fc = nn.Linear(in_features=512, out_features=num_classes, bias=True)
     elif architecture == "resnet34":
         if pretrained:
-            model = models.resnet34(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+            model = models.resnet34(weights=models.ResNet34_Weights.IMAGENET1K_V1)
         else:
             model = models.resnet34()
         model.conv1 = nn.Conv2d(
@@ -317,14 +317,24 @@ def make_model(
         model.fc = nn.Linear(in_features=512, out_features=num_classes, bias=True)
     elif architecture == "resnet50":
         if pretrained:
-            model = models.resnet50(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+            model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
         else:
             model = models.resnet50()
         model.conv1 = nn.Conv2d(
             in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
         )
         model.bn1 = nn.BatchNorm2d(64)
-        model.fc = nn.Linear(in_features=512, out_features=num_classes, bias=True)
+        model.fc = nn.Linear(in_features=2048, out_features=num_classes, bias=True)
+    elif architecture == "resnet101":
+        if pretrained:
+            model = models.resnet101(weights=models.ResNet101_Weights.IMAGENET1K_V1)
+        else:
+            model = models.resnet101()
+        model.conv1 = nn.Conv2d(
+            in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
+        )
+        model.bn1 = nn.BatchNorm2d(64)
+        model.fc = nn.Linear(in_features=2048, out_features=num_classes, bias=True)
     elif architecture == "efficientnet-b0":
         if pretrained:
             model = models.efficientnet_b0(
@@ -341,7 +351,7 @@ def make_model(
     elif architecture == "efficientnet-b1":
         if pretrained:
             model = models.efficientnet_b1(
-                weights=models.EfficientNet_B0_Weights.IMAGENET1K_V1
+                weights=models.EfficientNet_B1_Weights.IMAGENET1K_V1
             )
         else:
             model = models.efficientnet_b1()
@@ -354,7 +364,7 @@ def make_model(
     elif architecture == "efficientnet-b2":
         if pretrained:
             model = models.efficientnet_b2(
-                weights=models.EfficientNet_B0_Weights.IMAGENET1K_V1
+                weights=models.EfficientNet_B2_Weights.IMAGENET1K_V1
             )
         else:
             model = models.efficientnet_b2()
@@ -362,12 +372,12 @@ def make_model(
             in_channels, 32, kernel_size=3, stride=2, padding=1, bias=False
         )
         model.classifier[1] = nn.Linear(
-            in_features=1280, out_features=num_classes, bias=True
+            in_features=1408, out_features=num_classes, bias=True
         )
     elif architecture == "efficientnet-b3":
         if pretrained:
             model = models.efficientnet_b3(
-                weights=models.EfficientNet_B0_Weights.IMAGENET1K_V1
+                weights=models.EfficientNet_B3_Weights.IMAGENET1K_V1
             )
         else:
             model = models.efficientnet_b3()
@@ -375,12 +385,12 @@ def make_model(
             in_channels, 32, kernel_size=3, stride=2, padding=1, bias=False
         )
         model.classifier[1] = nn.Linear(
-            in_features=1280, out_features=num_classes, bias=True
+            in_features=1536, out_features=num_classes, bias=True
         )
     elif architecture == "efficientnet-b4":
         if pretrained:
             model = models.efficientnet_b4(
-                weights=models.EfficientNet_B0_Weights.IMAGENET1K_V1
+                weights=models.EfficientNet_B4_Weights.IMAGENET1K_V1
             )
         else:
             model = models.efficientnet_b4()
@@ -388,7 +398,7 @@ def make_model(
             in_channels, 32, kernel_size=3, stride=2, padding=1, bias=False
         )
         model.classifier[1] = nn.Linear(
-            in_features=1280, out_features=num_classes, bias=True
+            in_features=1792, out_features=num_classes, bias=True
         )
     else:
         raise ValueError(f'Architecture "{architecture}" not supported.')

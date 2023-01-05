@@ -1,6 +1,8 @@
 checkpoints/*
 data/*
-scores/*
+experiments/*
+plots/*
+outputs/*
 **/.ipynb_checkpoints
 **/__pycache__
 **/.mypy_cache
