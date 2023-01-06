@@ -52,6 +52,10 @@ class SkinDataset(Dataset):
         self.label_mapping = label_mapping
         self.transform = transform
 
+    def subset(self, k: int) -> None:
+        self.images = self.images[:k]
+        self.label_mapping = dict(list(self.label_mapping.items())[:k])
+
     def __len__(self) -> int:
         return len(self.images)
 
