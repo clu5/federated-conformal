@@ -533,7 +533,8 @@ def evaluate_model(
             pred = score.argmax(
                 dim=1, keepdim=True
             )  # get the index of the max log-probability
-            correct += pred.eq(target.view_as(pred)).sum().item()
+            # correct += pred.eq(target.view_as(pred)).sum().item()
+            correct += (score.argmax(1) == target).sum()
             total += data.shape[0]
 
             if return_logits:
@@ -588,7 +589,7 @@ class Net_eNTK(nn.Module):
 
 def scaffold_update(
     grads_data: torch.Tensor,
-    targets: torch.Tensor,
+    targets_onehot: torch.Tensor,
     theta_client: torch.Tensor,
     h_i_client_pre: torch.Tensor,
     theta_global: torch.Tensor,
@@ -598,15 +599,16 @@ def scaffold_update(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     # set up data / eNTK
     grads_data = grads_data.float().cuda()
-    targets = targets.cuda()
+    targets_onehot = targets_onehot.cuda()
     theta_client = theta_client.cuda()
     h_i_client_pre = h_i_client_pre.cuda()
     theta_global = theta_global.cuda()
 
     # compute transformed onehot label
-    targets_onehot = F.one_hot(targets, num_classes=num_classes).cuda() - (
-        1.0 / num_classes
-    )
+    # targets_onehot = F.one_hot(targets, num_classes=num_classes).cuda() - (
+    #    1.0 / num_classes
+    # )
+    targets_onehot = targets_onehot - (1.0 / num_classes)
     num_samples = targets_onehot.shape[0]
 
     # compute updates
@@ -618,13 +620,14 @@ def scaffold_update(
     # local gd
     for local_iter in range(M):
         theta_hat_local -= lr_local * (
-            (1.0 / num_samples)
-            * grads_data.t()
-            @ (grads_data @ theta_hat_local - targets_onehot)
+            (1.0 / num_samples) * grads_data.t()
+            # @ (grads_data @ theta_hat_local - targets_onehot)
+            @ (torch.softmax(grads_data @ theta_hat_local, 1) - targets_onehot)
             - h_i_client_update
         )
 
-    del targets
+    # del targets
+    del targets_onehot
     del grads_data
     del theta_client
     del theta_global

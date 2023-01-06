@@ -25,8 +25,11 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import datasets, models, transforms
 from tqdm import tqdm
 
+from conformal import (calibrate_aps, calibrate_lac, inference_aps,
+                       inference_lac)
 from skin_dataset import (TEST_TRANSFORM, TRAIN_TRANSFORM, SkinDataset,
                           get_weighted_sampler)
+from temperature import tune_temp
 from utils import (Net, Net_eNTK, average_models, client_update, compute_eNTK,
                    evaluate_many_models, evaluate_model, get_datasets,
                    make_model, partition_dataset, replace_last_layer,
@@ -40,14 +43,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_client", default=5, type=int)
     parser.add_argument("--seed", default=123, type=int)
-    parser.add_argument("--samples_per_client", default=1000, type=int)
-    parser.add_argument("--rounds_stage1", default=50, type=int)
+    parser.add_argument("--samples_per_client", default=10000, type=int)
+    parser.add_argument("--rounds_stage1", default=100, type=int)
     parser.add_argument("--local_epochs_stage1", default=5, type=int)
     parser.add_argument("--batch_size", default=64, type=int)
     parser.add_argument("--local_lr_stage1", default=0.01, type=float)
     parser.add_argument("--rounds_stage2", default=100, type=int)
-    parser.add_argument("--local_steps_stage2", default=200, type=int)
-    parser.add_argument("--local_lr_stage2", default=0.00001, type=float)
+    parser.add_argument("--local_steps_stage2", default=500, type=int)
+    parser.add_argument("--local_lr_stage2", default=0.0001, type=float)
     parser.add_argument("--data_dir", default="data", type=str)
     parser.add_argument("--save_dir", default="experiments", type=str)
     parser.add_argument("--dataset", default="fashion", type=str)
@@ -60,10 +63,13 @@ def main():
     parser.add_argument("--central", action="store_true")
     parser.add_argument("--momentum", default=0.9, type=float)
     parser.add_argument("--use_data_augmentation", action="store_true")
-    parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrickv2.csv", type=str)
+    parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrick.csv", type=str)
+    # parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrickv2.csv", type=str)
     parser.add_argument("--pretrained", action="store_true")
     parser.add_argument("--num_random_grad", default=100000, type=int)
     parser.add_argument("--start_from_stage1", action="store_true")
+    parser.add_argument("--override", action="store_true")
+    parser.add_argument("--tag", default="", type=str)
     parser.add_argument(
         "--fitzpatrick_image_dir",
         default="../data/fitzpatrick17k/images",
@@ -101,6 +107,8 @@ def main():
     fitzpatrick_image_dir = Path(args["fitzpatrick_image_dir"]).resolve()
     pretrained = args["pretrained"]
     num_random_grad = args["num_random_grad"]
+    override = args["override"]
+    tag = args["tag"]
 
     debug = args["debug"]  # debugging mode
     dataset_name = args["dataset"]
@@ -207,7 +215,8 @@ def main():
     elif dataset_name == "fitzpatrick":
         in_channels = 3
         num_classes = 114
-        num_clients = 11
+        # num_clients = 11
+        num_clients = 12
         client_label_map = None
     else:
         raise ValueError(f'dataset "{dataset_name}" not supported')
@@ -231,6 +240,9 @@ def main():
     if pretrained:
         save_name = save_name + "_pretrained"
 
+    if tag:
+        save_name = save_name + f"_{tag}"
+
     if debug:
         save_name = "debug_" + save_name
         num_rounds_stage1 = 5
@@ -243,7 +255,8 @@ def main():
     save_dir = Path(args["save_dir"]) / save_name
     data_dir = Path(args["data_dir"])
 
-    if (save_dir / "finished.txt").exists():
+    if not override and (save_dir / "finished.txt").exists():
+        print("experiment already exists")
         exit()
 
     save_dir.mkdir(exist_ok=True, parents=True)
@@ -280,7 +293,10 @@ def main():
 
     if dataset_name == "fitzpatrick":
         df = pd.read_csv(fitzpatrick_csv)
-        skin_types = sorted(df.aggregated_fitzpatrick_scale.unique())
+        skin_types = sorted(
+            df.aggregated_fitzpatrick_scale.unique()
+            # [x for x in df.aggregated_fitzpatrick_scale.unique() if x != -1]
+        )
         if not central:
             assert len(skin_types) == num_clients
         if use_iid_partition:
@@ -314,6 +330,8 @@ def main():
             )
             for st, df in train_partition.items()
         }
+        for ds in train_datasets.values():
+            ds.subset(samples_per_client)
         val_map = dict(val_df[["md5hash", "target"]].values)
         val_dataset = SkinDataset(
             image_dir=fitzpatrick_image_dir,
@@ -485,7 +503,6 @@ def main():
             # client update
             loss = 0
             for i in range(num_clients):
-                print(".", end="")
                 loss += client_update(
                     client_models[i],
                     opt[i],
@@ -521,7 +538,6 @@ def main():
             stage1_accuracy["clients_train"].append(clients_train_acc)
 
             # save mean and variance of client accuracy and max score
-
             clients_test_loss = 0
             clients_test_acc = []
             clients_test_max_score = []
@@ -534,7 +550,7 @@ def main():
                 )
                 clients_test_loss += test_loss
                 clients_test_acc.append(test_acc)
-                clients_test_max_score.append(torch.softmax(logits, 1).argmax(1))
+                clients_test_max_score.append(torch.softmax(logits, 1).max(1).values)
 
             clients_test_loss /= num_clients
             clients_test_max_score = torch.cat(clients_test_max_score).cpu().tolist()
@@ -545,7 +561,6 @@ def main():
             )
             stage1_accuracy["clients_test_std"].append(float(np.std(clients_test_acc)))
 
-            # TODO debug max score (larger than 1)
             stage1_max_score["clients_test_mean"].append(
                 float(np.mean(clients_test_max_score))
             )
@@ -676,6 +691,8 @@ def main():
                 )
                 for st, df in train_partition.items()
             }
+            for ds in train_datasets.values():
+                ds.subset(samples_per_client)
             train_loaders = [
                 DataLoader(
                     ds,
@@ -708,8 +725,10 @@ def main():
                 for train_subset in client_train_datasets.values()
             ]
 
-        logger.info(" Start Stage-2 ".center(20, "="))
-        checkpoint = checkpoint_dir / f"{save_name}_stage1_model_{num_rounds_stage1}.pth"
+        logger.info("===================== Start Stage-2 =====================")
+        checkpoint = (
+            checkpoint_dir / f"{save_name}_stage1_model_{num_rounds_stage1}.pth"
+        )
         logger.info(f"{checkpoint=}")
 
         # Init and load model ckpt
@@ -717,24 +736,29 @@ def main():
         global_model.load_state_dict(torch.load(checkpoint))
         global_model = global_model.cuda()
 
-        # TODO find out why train accuracy is so low here
-        train_loss, train_acc = 0, 0
+        client_train_loss, client_train_acc = 0, 0
         for i in range(num_clients):
-            train_loss, train_acc = evaluate_model(
+            train_loss, train_acc, train_scores, train_targets = evaluate_model(
                 global_model,
                 train_loaders[i],
                 num_batches=len(train_loaders[i]),
+                return_logits=True,
             )
-            train_loss += train_loss
-            train_acc += train_acc
-        train_loss /= num_clients
-        train_acc /= num_clients
+            client_train_loss += train_loss
+            client_train_acc += train_acc
+
+        client_train_loss /= num_clients
+        client_train_acc /= num_clients
 
         test_loss, test_acc, test_scores, test_targets = evaluate_model(
-            global_model, test_loader, return_logits=True, num_batches=len(test_loader)
+            global_model,
+            test_loader,
+            return_logits=True,
+            num_batches=len(test_loader),
         )
         logger.info(
-            f"stage2 model -- {train_loss=:.3f} -- {train_acc=:.3f} -- {test_loss=:.3f} -- {test_acc=:.3f}"
+            f"stage2 model -- {client_train_loss=:.3f} -- "
+            + f"{client_train_acc=:.3f} -- {test_loss=:.3f} -- {test_acc=:.3f}"
         )
 
         global_model = replace_last_layer(global_model, architecture, num_classes=1)
@@ -761,6 +785,14 @@ def main():
 
         assert len(grad_all) == num_clients
 
+        # For calibration
+        grad_val, target_val = compute_eNTK(
+            global_model,
+            val_loader,
+            subsample_size=num_random_grad,
+            seed=seed,
+            num_classes=num_classes,
+        )
         # Test
         grad_test, target_test = compute_eNTK(
             global_model,
@@ -770,24 +802,11 @@ def main():
             num_classes=num_classes,
         )
 
-        # For calibration
-        grad_val, target_val = compute_eNTK(
-            global_model,
-            val_loader,
-            subsample_size=num_random_grad,
-            seed=seed,
-            num_classes=num_classes,
-        )
-
         # normalization
         logger.info("normalization")
         scaler = StandardScaler()
-        # TODO log normalization scale
-        # logger.info(f"{len(grad_all[0])=}")
-        # scaler.fit(torch.cat([grad[torch.randperm(grad.shape[0])[:20000] for grad in grad_all]]).cpu().numpy())
         scaler.fit(torch.cat(grad_all).cpu().numpy())
         for idx in range(len(grad_all)):
-            print(".", end="")
             grad_all[idx] = torch.from_numpy(
                 scaler.transform(grad_all[idx].cpu().numpy())
             )
@@ -800,14 +819,17 @@ def main():
         client_thetas = [torch.zeros_like(theta_global) for _ in range(num_clients)]
         client_hi_s = [torch.zeros_like(theta_global) for _ in range(num_clients)]
 
+        train_targets = []
+        for i in range(num_clients):
+            train_targets.append(F.one_hot(target_all[i], num_classes=num_classes))
+
         # Run TCT-Stage2
-        for round_idx in range(num_rounds_stage2):
+        for round_idx in range(1, num_rounds_stage2 + 1):
             theta_list = []
             for i in range(num_clients):
-                print(".", end="")
                 theta_hat_update, h_i_client_update = scaffold_update(
                     grad_all[i],
-                    target_all[i],
+                    train_targets[i],
                     client_thetas[i],
                     client_hi_s[i],
                     theta_global,
@@ -831,7 +853,9 @@ def main():
                 (logits_class_train.argmax(1) == target_train.cpu()).sum()
                 / logits_class_train.shape[0]
             ).item()
-            train_max_score = logits_class_train.max(1).values.mean().item()
+            train_max_score = (
+                torch.softmax(logits_class_train, 1).max(1).values.mean().item()
+            )
 
             # eval on val
             logits_class_val = grad_val.cpu() @ theta_global.cpu()
@@ -842,36 +866,56 @@ def main():
                 (logits_class_test.argmax(1) == target_test.cpu()).sum()
                 / logits_class_test.shape[0]
             ).item()
-            test_max_score = logits_class_test.max(1).values.mean().item()
+            # test_max_score = logits_class_test.max(1).values.mean().item()
 
-            logger.info(f"{round_idx=}: {train_acc=:.3f} {test_acc=:.3f}")
+            T = tune_temp(logits_class_val, target_val)
+            # T = 1
+            val_scores = torch.softmax(logits_class_val / T, 1)
+            test_scores = torch.softmax(logits_class_test / T, 1)
+            q_10 = calibrate_aps(val_scores, target_val, alpha=0.1)
+            q_20 = calibrate_aps(val_scores, target_val, alpha=0.2)
+            q_30 = calibrate_aps(val_scores, target_val, alpha=0.3)
+            psets_10 = inference_aps(test_scores, q_10)
+            psets_20 = inference_aps(test_scores, q_20)
+            psets_30 = inference_aps(test_scores, q_30)
+            size_10 = psets_10.sum(1).float().mean().item()
+            size_20 = psets_20.sum(1).float().mean().item()
+            size_30 = psets_30.sum(1).float().mean().item()
 
-            # logger.debug(f"{torch.cat(grad_all).shape=}")
-            # logger.debug(f"{grad_test.shape=}")
-            # logger.debug(f"{theta_global.shape=}")
-            # logger.debug(f"{train_max_score=:.3f} {test_max_score=:.3f}")
+            logger.info(
+                f"{round_idx=}: {train_acc=:.3f} {test_acc=:.3f}   "
+                + f" {train_max_score=:.3f} {test_scores.max(1).values.mean().item()=:.3f}  "
+                + f" {q_10=:.3f} {size_10=:.1f}"
+                + f" {q_20=:.3f} {size_20=:.1f}"
+                + f" {q_30=:.3f} {size_30=:.1f}"
+            )
 
-        if not debug:
-            torch.save(
-                logits_class_train, score_dir / f"{save_name}_stage2_train_scores.pth"
-            )
-            torch.save(
-                target_train, score_dir / f"{save_name}_stage2_train_targets.pth"
-            )
-            torch.save(
-                logits_class_val, score_dir / f"{save_name}_stage2_val_scores.pth"
-            )
-            torch.save(target_val, score_dir / f"{save_name}_stage2_val_targets.pth")
-            torch.save(
-                logits_class_test, score_dir / f"{save_name}_stage2_test_scores.pth"
-            )
-            torch.save(target_test, score_dir / f"{save_name}_stage2_test_targets.pth")
+            if round_idx % 25 == 0 or round_idx == num_rounds_stage2:
+                torch.save(
+                    logits_class_train,
+                    score_dir / f"{save_name}_stage2_train_scores.pth",
+                )
+                torch.save(
+                    target_train, score_dir / f"{save_name}_stage2_train_targets.pth"
+                )
+                torch.save(
+                    logits_class_val, score_dir / f"{save_name}_stage2_val_scores.pth"
+                )
+                torch.save(
+                    target_val, score_dir / f"{save_name}_stage2_val_targets.pth"
+                )
+                torch.save(
+                    logits_class_test, score_dir / f"{save_name}_stage2_test_scores.pth"
+                )
+                torch.save(
+                    target_test, score_dir / f"{save_name}_stage2_test_targets.pth"
+                )
 
         logger.info(" Finished TCT Stage-2 ".center(20, "="))
 
     end_time = time.perf_counter()
     total_runtime = end_time - start_time
-    logger.info(f"total runtime {total_runtime:.0f}")
+    logger.info(f"total runtime {total_runtime:.0f}".center(40, "="))
 
     if not debug:
         with open(save_dir / "finished.txt", "w") as f:

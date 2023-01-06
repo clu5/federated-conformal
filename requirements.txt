@@ -1,4 +1,5 @@
 black
+cvxpy
 flake8
 isort
 medmnist
