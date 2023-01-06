@@ -543,9 +543,16 @@ def evaluate_model(
 
     loss /= (i + 1) * data_loader.batch_size
     acc = correct / total
+    loss = loss
+    acc = acc.detach().cpu()
 
     if return_logits:
-        return loss, acc, torch.cat(logits), torch.cat(targets)
+        return (
+            loss,
+            acc,
+            torch.cat(logits),
+            torch.cat(targets),
+        )
     else:
         return loss, acc
 

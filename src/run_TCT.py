@@ -7,7 +7,6 @@ import os
 import sys
 import time
 from pathlib import Path
-from statistics import mean, stdev
 
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import matplotlib.pyplot as plt
@@ -55,7 +54,6 @@ def main():
     parser.add_argument("--save_dir", default="experiments", type=str)
     parser.add_argument("--dataset", default="fashion", type=str)
     parser.add_argument("--architecture", default="cnn", type=str)
-    parser.add_argument("--debug", action="store_true")
     parser.add_argument("--start_from_stage2", action="store_true")
     parser.add_argument("--num_workers", default=16, type=int)
     parser.add_argument("--num_test_samples", default=10000, type=int)
@@ -110,7 +108,6 @@ def main():
     override = args["override"]
     tag = args["tag"]
 
-    debug = args["debug"]  # debugging mode
     dataset_name = args["dataset"]
 
     if dataset_name == "mnist":
@@ -243,17 +240,9 @@ def main():
     if tag:
         save_name = save_name + f"_{tag}"
 
-    if debug:
-        save_name = "debug_" + save_name
-        num_rounds_stage1 = 5
-        num_rounds_stage2 = 5
-        samples_per_client = 100
-        batch_size = 8
-        num_test_samples = 100
-
     # Make directory to write outputs
     save_dir = Path(args["save_dir"]) / save_name
-    data_dir = Path(args["data_dir"])
+    data_dir = Path(args["data_dir"]).resolve()
 
     if not override and (save_dir / "finished.txt").exists():
         print("experiment already exists")
@@ -271,9 +260,8 @@ def main():
     figure_dir = save_dir / "figures"
     figure_dir.mkdir(exist_ok=True, parents=True)
 
-    if not debug:
-        with open(save_dir / "commands.txt", "w") as f:
-            json.dump(args, f, indent=4)
+    with open(save_dir / "commands.txt", "w") as f:
+        json.dump(args, f, indent=4)
 
     # Setup logging to write console output to file
     logger = logging.getLogger(__name__)
@@ -437,11 +425,6 @@ def main():
             pin_memory=True,
         )
 
-    logger.debug(f"{len(val_loader)=}")
-    logger.debug(f"{len(test_loader)=}")
-    logger.debug(f"{len(val_loader.dataset)=}")
-    logger.debug(f"{len(test_loader.dataset)=}")
-
     for i, loader in enumerate(train_loaders):
         logger.info(
             f"client {i} train samples".ljust(20, "-") + f" {len(loader.dataset)}"
@@ -553,7 +536,7 @@ def main():
                 clients_test_max_score.append(torch.softmax(logits, 1).max(1).values)
 
             clients_test_loss /= num_clients
-            clients_test_max_score = torch.cat(clients_test_max_score).cpu().tolist()
+            clients_test_max_score = torch.cat(clients_test_max_score).tolist()
 
             stage1_loss["clients_test"].append(clients_test_loss)
             stage1_accuracy["clients_test_mean"].append(
@@ -595,7 +578,7 @@ def main():
                 f" {loss:.3f} train loss {clients_train_loss:.3f} "
                 f"| test loss {clients_test_loss:.3f} "
                 f"| train acc {clients_train_acc:.3f} "
-                f"| test acc {mean(clients_test_acc):.3f} "
+                f"| test acc {np.mean(clients_test_acc):.3f} "
                 f"   == global model =="
                 f"  train loss {global_train_loss:.3f} "
                 f"| test loss {global_test_loss:.3f} "
@@ -866,8 +849,6 @@ def main():
                 (logits_class_test.argmax(1) == target_test.cpu()).sum()
                 / logits_class_test.shape[0]
             ).item()
-            # test_max_score = logits_class_test.max(1).values.mean().item()
-
             T = tune_temp(logits_class_val, target_val)
             # T = 1
             val_scores = torch.softmax(logits_class_val / T, 1)
@@ -882,9 +863,11 @@ def main():
             size_20 = psets_20.sum(1).float().mean().item()
             size_30 = psets_30.sum(1).float().mean().item()
 
+            test_max_score = test_scores.max(1).values.mean().item()
+
             logger.info(
                 f"{round_idx=}: {train_acc=:.3f} {test_acc=:.3f}   "
-                + f" {train_max_score=:.3f} {test_scores.max(1).values.mean().item()=:.3f}  "
+                + f" {train_max_score=:.3f} {test_max_score=:.3f}  "
                 + f" {q_10=:.3f} {size_10=:.1f}"
                 + f" {q_20=:.3f} {size_20=:.1f}"
                 + f" {q_30=:.3f} {size_30=:.1f}"
@@ -917,9 +900,8 @@ def main():
     total_runtime = end_time - start_time
     logger.info(f"total runtime {total_runtime:.0f}".center(40, "="))
 
-    if not debug:
-        with open(save_dir / "finished.txt", "w") as f:
-            f.write(f"total runtime: {total_runtime:.0f}")
+    with open(save_dir / "finished.txt", "w") as f:
+        f.write(f"total runtime: {total_runtime:.0f}")
 
 
 if __name__ == "__main__":
