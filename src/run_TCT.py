@@ -61,8 +61,8 @@ def main():
     parser.add_argument("--central", action="store_true")
     parser.add_argument("--momentum", default=0.9, type=float)
     parser.add_argument("--use_data_augmentation", action="store_true")
-    parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrick.csv", type=str)
-    # parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrickv2.csv", type=str)
+    #parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrick.csv", type=str)
+    parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrickv2.csv", type=str)
     parser.add_argument("--pretrained", action="store_true")
     parser.add_argument("--num_random_grad", default=100000, type=int)
     parser.add_argument("--start_from_stage1", action="store_true")
@@ -212,8 +212,8 @@ def main():
     elif dataset_name == "fitzpatrick":
         in_channels = 3
         num_classes = 114
-        # num_clients = 11
-        num_clients = 12
+        num_clients = 11
+        #num_clients = 12
         client_label_map = None
     else:
         raise ValueError(f'dataset "{dataset_name}" not supported')
@@ -282,8 +282,8 @@ def main():
     if dataset_name == "fitzpatrick":
         df = pd.read_csv(fitzpatrick_csv)
         skin_types = sorted(
-            df.aggregated_fitzpatrick_scale.unique()
-            # [x for x in df.aggregated_fitzpatrick_scale.unique() if x != -1]
+            #df.aggregated_fitzpatrick_scale.unique()
+            [x for x in df.aggregated_fitzpatrick_scale.unique() if x != -1]
         )
         if not central:
             assert len(skin_types) == num_clients
@@ -626,19 +626,19 @@ def main():
                 default=float,
             )
 
-        fig, ax = plt.subplots(ncols=2, figsize=(16, 5))
+        fig, ax = plt.subplots(ncols=2, figsize=(18, 6))
         fontsize = 24
-        ax[0].plot(stage1_loss["clients_train"], ".:", label="clients_train")
-        ax[0].plot(stage1_loss["clients_test"], ".:", label="clients_test")
-        ax[0].plot(stage1_loss["global_train"], "o--", label="global_train")
-        ax[0].plot(stage1_loss["global_test"], "o--", label="global_test")
+        ax[0].plot(stage1_loss["clients_train"], ":", label="clients_train")
+        ax[0].plot(stage1_loss["clients_test"], ":", label="clients_test")
+        ax[0].plot(stage1_loss["global_train"], "--", label="global_train")
+        ax[0].plot(stage1_loss["global_test"], "--", label="global_test")
         ax[0].set_xlabel("round", fontsize=fontsize)
         ax[0].set_ylabel("loss", fontsize=fontsize)
         ax[0].legend(fontsize=fontsize)
-        ax[1].plot(stage1_accuracy["clients_train"], ".:", label="clients_train")
-        ax[1].plot(stage1_accuracy["clients_test_mean"], ".:", label="clients_test")
-        ax[1].plot(stage1_accuracy["global_train"], "o--", label="global_train")
-        ax[1].plot(stage1_accuracy["global_test"], "o--", label="global_test")
+        ax[1].plot(stage1_accuracy["clients_train"], ":", label="clients_train")
+        ax[1].plot(stage1_accuracy["clients_test_mean"], ":", label="clients_test")
+        ax[1].plot(stage1_accuracy["global_train"], "--", label="global_train")
+        ax[1].plot(stage1_accuracy["global_test"], "--", label="global_test")
         ax[1].set_xlabel("round", fontsize=fontsize)
         ax[1].set_ylabel("accuracy", fontsize=fontsize)
         ax[1].legend(fontsize=fontsize)

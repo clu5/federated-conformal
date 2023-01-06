@@ -1,31 +1,26 @@
-#! /usr/bin/bash
+#! /bin/bash
+
+# Slurm sbatch options
+#SBATCH -o outputs/fitzpatrick.%j
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=16
+#SBATCH --gres=gpu:volta:1
+
+# Loading the required module
+source /etc/profile
+module load anaconda cuda
 
 # TCT
-CUDA_VISIBLE_DEVICES=0 python src/run_TCT.py --dataset fitzpatrick --architecture resnet18 --rounds_stage1 100 --rounds_stage2 100 --local_epochs_stage1 5 --local_lr_stage1 0.01 --local_steps_stage2 500 --local_lr_stage2 0.00001 --momentum 0.9 --batch_size 64 --use_data_augmentation --save_dir new_experiments
+python src/run_TCT.py --dataset fitzpatrick --architecture resnet34 --rounds_stage1 100 --rounds_stage2 100 --local_epochs_stage1 5 --local_lr_stage1 0.01 --local_steps_stage2 500 --local_lr_stage2 0.0001 --momentum 0.9 --batch_size 64 --use_data_augmentation --save_dir experiments --data_dir ../data
 
 # FedAvg
-CUDA_VISIBLE_DEVICES=0 python src/run_TCT.py --dataset fitzpatrick --architecture resnet18 --rounds_stage1 200 --rounds_stage2 0 --local_epochs_stage1 5 --local_lr_stage1 0.01 --momentum 0.9 --batch_size 64 --use_data_augmentation --save_dir new_experiments
+python src/run_TCT.py --dataset fitzpatrick --architecture resnet34 --rounds_stage1 200 --rounds_stage2 0 --local_epochs_stage1 5 --local_lr_stage1 0.01 --momentum 0.9 --batch_size 64 --use_data_augmentation --save_dir experiments --data_dir ../data
 
 # Centrally hosted
-CUDA_VISIBLE_DEVICES=0 python src/run_TCT.py --dataset fitzpatrick --architecture resnet18 --central --rounds_stage1 200 --rounds_stage2 0 --local_epochs_stage1 1 --local_lr_stage1 0.01 --momentum 0.9 --batch_size 64 --use_data_augmentation --save_dir new_experiments
+python src/run_TCT.py --dataset fitzpatrick --architecture resnet34 --central --rounds_stage1 200 --rounds_stage2 0 --local_epochs_stage1 1 --local_lr_stage1 0.01 --momentum 0.9 --batch_size 64 --use_data_augmentation --save_dir experiments --data_dir ../data
 
 # TCT (IID)
-CUDA_VISIBLE_DEVICES=0 python src/run_TCT.py --dataset fitzpatrick --architecture resnet18 --rounds_stage1 100 --rounds_stage2 100 --local_epochs_stage1 5 --local_lr_stage1 0.01 --local_steps_stage2 500 --local_lr_stage2 0.00001 --momentum 0.9 --batch_size 64 --use_data_augmentation --use_iid_partition --save_dir new_experiments
+python src/run_TCT.py --dataset fitzpatrick --architecture resnet34 --rounds_stage1 100 --rounds_stage2 100 --local_epochs_stage1 5 --local_lr_stage1 0.01 --local_steps_stage2 500 --local_lr_stage2 0.0001 --momentum 0.9 --batch_size 64 --use_data_augmentation --use_iid_partition --save_dir experiments --data_dir ../data
 
 # FedAvg (IID)
-CUDA_VISIBLE_DEVICES=0 python src/run_TCT.py --dataset fitzpatrick --architecture resnet18 --rounds_stage1 200 --rounds_stage2 0 --local_epochs_stage1 5 --local_lr_stage1 0.01 --momentum 0.9 --batch_size 64 --use_data_augmentation --use_iid_partition --save_dir new_experiments
-
-# TCT
-CUDA_VISIBLE_DEVICES=0 python src/run_TCT.py --dataset fitzpatrick --architecture efficientnet-b0 --rounds_stage1 100 --rounds_stage2 100 --local_epochs_stage1 5 --local_lr_stage1 0.01 --local_steps_stage2 500 --local_lr_stage2 0.00001 --momentum 0.9 --batch_size 64 --use_data_augmentation --save_dir new_experiments
-
-# FedAvg
-CUDA_VISIBLE_DEVICES=0 python src/run_TCT.py --dataset fitzpatrick --architecture efficientnet-b0 --rounds_stage1 200 --rounds_stage2 0 --local_epochs_stage1 5 --local_lr_stage1 0.01 --momentum 0.9 --batch_size 64 --use_data_augmentation --save_dir new_experiments
-
-# Centrally hosted
-CUDA_VISIBLE_DEVICES=0 python src/run_TCT.py --dataset fitzpatrick --architecture efficientnet-b0 --central --rounds_stage1 200 --rounds_stage2 0 --local_epochs_stage1 1 --local_lr_stage1 0.01 --momentum 0.9 --batch_size 64 --use_data_augmentation --save_dir new_experiments
-
-# TCT (IID)
-CUDA_VISIBLE_DEVICES=0 python src/run_TCT.py --dataset fitzpatrick --architecture efficientnet-b0 --rounds_stage1 100 --rounds_stage2 100 --local_epochs_stage1 5 --local_lr_stage1 0.01 --local_steps_stage2 500 --local_lr_stage2 0.00001 --momentum 0.9 --batch_size 64 --use_data_augmentation --use_iid_partition --save_dir new_experiments
-
-# FedAvg (IID)
-CUDA_VISIBLE_DEVICES=0 python src/run_TCT.py --dataset fitzpatrick --architecture efficientnet-b0 --rounds_stage1 200 --rounds_stage2 0 --local_epochs_stage1 5 --local_lr_stage1 0.01 --momentum 0.9 --batch_size 64 --use_data_augmentation --use_iid_partition --save_dir new_experiments
+python src/run_TCT.py --dataset fitzpatrick --architecture resnet34 --rounds_stage1 200 --rounds_stage2 0 --local_epochs_stage1 5 --local_lr_stage1 0.01 --momentum 0.9 --batch_size 64 --use_data_augmentation --use_iid_partition --save_dir experiments --data_dir ../data
