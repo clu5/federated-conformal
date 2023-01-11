@@ -1,4 +1,6 @@
 import cvxpy as cx
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -54,3 +56,140 @@ def tune_temp(
         t = 1 / t.value
 
     return t
+
+
+def calc_bins(scores, targets):
+    # Assign each prediction to a bin
+    num_bins = 10
+    bins = np.linspace(0.1, 1, num_bins)
+    binned = np.digitize(scores, bins)
+
+    # Save the accuracy, confidence and size of each bin
+    bin_accs = np.zeros(num_bins)
+    bin_confs = np.zeros(num_bins)
+    bin_sizes = np.zeros(num_bins)
+
+    for bin in range(num_bins):
+        bin_sizes[bin] = len(scores[binned == bin])
+        if bin_sizes[bin] > 0:
+            bin_accs[bin] = (targets[binned==bin]).sum() / bin_sizes[bin]
+            bin_confs[bin] = (scores[binned==bin]).sum() / bin_sizes[bin]
+
+    return bins, binned, bin_accs, bin_confs, bin_sizes
+
+def get_calibration_metrics(scores, targets):
+    ECE = 0
+    MCE = 0
+    bins, _, bin_accs, bin_confs, bin_sizes = calc_bins(scores, targets)
+
+    for i in range(len(bins)):
+        abs_conf_dif = abs(bin_accs[i] - bin_confs[i])
+        ECE += (bin_sizes[i] / sum(bin_sizes)) * abs_conf_dif
+        MCE = max(MCE, abs_conf_dif)
+
+    return ECE, MCE
+
+def temp_scale(logits, labels, plot=True):
+    temperature = torch.nn.Parameter(torch.ones(1))#.to('cuda' if torch.cuda.is_available() else 'cpu')
+    # print(temperature.is_leaf)
+    criterion = torch.nn.CrossEntropyLoss()
+
+    # Removing strong_wolfe line search results in jump after 50 epochs
+    optimizer = torch.optim.LBFGS([temperature], lr=0.001, max_iter=10000, line_search_fn='strong_wolfe')
+
+    temps = []
+    losses = []
+
+    def _eval():
+        loss = criterion(torch.div(logits, temperature), labels)
+        loss.backward()
+        temps.append(temperature.item())
+        losses.append(loss.item())
+        return loss
+
+    optimizer.step(_eval)
+
+    if plot: print('Final T_scaling factor: {:.2f}'.format(temperature.item()))
+
+    if plot:
+        plt.figure(figsize=(9, 2))
+        plt.subplot(121)
+        plt.plot(list(range(len(temps))), temps)
+
+        plt.subplot(122)
+        plt.plot(list(range(len(losses))), losses)
+        plt.show()
+    return temperature.detach()
+
+
+def draw_reliability_graph(logits, targets, use_temp_scale=True, plot=False, title=None):
+    
+    if use_temp_scale:
+        T = temp_scale(logits, targets, plot=plot)
+        temp_scores = torch.softmax(logits / T, 1)
+        
+    scores = torch.softmax(logits, 1)
+    targets = torch.nn.functional.one_hot(targets)
+        
+    ECE, MCE = get_calibration_metrics(scores, targets)
+    bins, _, bin_accs, _, _ = calc_bins(scores, targets)
+    if use_temp_scale:
+        temp_ECE, temp_MCE = get_calibration_metrics(temp_scores, targets)
+        temp_bins, _, temp_bin_accs, _, _ = calc_bins(temp_scores, targets)
+
+    fig, ax = plt.subplots(ncols=2 , figsize=(5*(2 if use_temp_scale else 1), 4))
+    if title is not None:
+        fig.suptitle(title, fontsize=24)
+
+    # x/y limits
+    ax[0].set_xlim(0, 1.05)
+    ax[0].set_ylim(0, 1)
+    if use_temp_scale:
+        ax[1].set_xlim(0, 1.05)
+        ax[1].set_ylim(0, 1)
+
+    # x/y labels
+    ax[0].set_xlabel('Confidence')
+    ax[0].set_ylabel('Accuracy')
+    if use_temp_scale:
+        ax[1].set_xlabel('Confidence')
+        ax[1].set_ylabel('Accuracy')
+
+    # Create grid
+    # ax.set_axisbelow(True) 
+    # ax.grid(color='gray', linestyle='dashed')
+
+    # Error bars
+    ax[0].bar(bins, bins,  width=0.1, alpha=0.3, edgecolor='black', color='r', hatch='\\')
+    if use_temp_scale:
+        ax[1].bar(temp_bins, temp_bins,  width=0.1, alpha=0.3, edgecolor='black', color='r', hatch='\\')
+
+    # Draw bars and identity line
+    ax[0].bar(bins, bin_accs, width=0.1, alpha=1, edgecolor='black', color='b')
+    ax[0].plot([0,1],[0,1], '--', color='gray', linewidth=2)
+    if use_temp_scale:
+        ax[1].bar(temp_bins, temp_bin_accs, width=0.1, alpha=1, edgecolor='black', color='b')
+        ax[1].plot([0,1],[0,1], '--', color='gray', linewidth=2)
+
+    # Equally spaced axes
+    ax[0].set_aspect('equal', adjustable='box')
+    if use_temp_scale:
+        ax[1].set_aspect('equal', adjustable='box')
+
+    # ECE and MCE legend
+    ECE_patch = mpatches.Patch(color='green', label='ECE = {:.2f}%'.format(ECE*100))
+    MCE_patch = mpatches.Patch(color='red', label='MCE = {:.2f}%'.format(MCE*100))
+    ax[0].legend(handles=[ECE_patch, MCE_patch])
+    if use_temp_scale:
+        temp_ECE_patch = mpatches.Patch(color='green', label='ECE = {:.2f}%'.format(temp_ECE*100))
+        temp_MCE_patch = mpatches.Patch(color='red', label='MCE = {:.2f}%'.format(temp_MCE*100))
+        ax[1].legend(handles=[temp_ECE_patch, temp_MCE_patch])
+        
+    ax[0].set_title('no temperature', fontsize=16)
+    if use_temp_scale:
+        ax[1].set_title('temperature', fontsize=16)
+
+    fig.tight_layout()
+    plt.show()
+
+    # plt.savefig('calibrated_network.png', bbox_inches='tight')
