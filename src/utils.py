@@ -164,24 +164,24 @@ def get_datasets(
         train_data = construct_dataset(
             split="train",
             root=data_dir,
-            download=False,
-            # download=True,
+            # download=False,
+            download=True,
             transform=transforms.Compose(train_transform),
             target_transform=target_transform,
         )
         val_data = construct_dataset(
             split="val",
             root=data_dir,
-            download=False,
-            # download=True,
+            # download=False,
+            download=True,
             transform=transforms.Compose(test_transform),
             target_transform=target_transform,
         )
         test_data = construct_dataset(
             split="test",
             root=data_dir,
-            download=False,
-            # download=True,
+            # download=False,
+            download=True,
             transform=transforms.Compose(test_transform),
             target_transform=target_transform,
         )
@@ -234,10 +234,11 @@ def partition_dataset(
     if use_iid_partition:
         perm = torch.randperm(len(dataset))
         num_clients = len(client_label_map)
-        # samples_per_client = round(len(dataset) / num_clients)
+        num_samples = round(len(dataset) / num_clients)
         for i, client in enumerate(client_label_map.keys()):
             client_datasets[client] = Subset(
-                dataset, perm[i * samples_per_client : (i + 1) * samples_per_client]
+                dataset,
+                perm[i * num_samples : (i + 1) * num_samples][:samples_per_client],
             )
     else:
         if hasattr(dataset, "targets"):
@@ -615,7 +616,7 @@ def scaffold_update(
     # targets_onehot = F.one_hot(targets, num_classes=num_classes).cuda() - (
     #    1.0 / num_classes
     # )
-    targets_onehot = targets_onehot - (1.0 / num_classes)
+    # targets_onehot = targets_onehot - (1.0 / num_classes)
     num_samples = targets_onehot.shape[0]
 
     # compute updates

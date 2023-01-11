@@ -61,13 +61,13 @@ def main():
     parser.add_argument("--central", action="store_true")
     parser.add_argument("--momentum", default=0.9, type=float)
     parser.add_argument("--use_data_augmentation", action="store_true")
-    #parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrick.csv", type=str)
-    parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrickv2.csv", type=str)
+    parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrick_v3.csv", type=str)
     parser.add_argument("--pretrained", action="store_true")
     parser.add_argument("--num_random_grad", default=100000, type=int)
     parser.add_argument("--start_from_stage1", action="store_true")
     parser.add_argument("--override", action="store_true")
     parser.add_argument("--tag", default="", type=str)
+    parser.add_argument("--use_three_partition_label", action="store_true")
     parser.add_argument(
         "--fitzpatrick_image_dir",
         default="../data/fitzpatrick17k/images",
@@ -107,52 +107,57 @@ def main():
     num_random_grad = args["num_random_grad"]
     override = args["override"]
     tag = args["tag"]
+    use_three_partition_label = args["use_three_partition_label"]
 
     dataset_name = args["dataset"]
 
     if dataset_name == "mnist":
         in_channels = 1
         num_classes = 10
-        num_clients = 5
+        num_clients = 10
         client_label_map = {
-            "client_1": [0, 1],
-            "client_2": [2, 3],
-            "client_3": [4, 5],
-            "client_4": [6, 7],
-            "client_5": [8, 9],
-        }
-    elif dataset_name == "svhn":
-        in_channels = 3
-        num_classes = 10
-        num_clients = 5
-        client_label_map = {
-            "client_1": [0, 1],
-            "client_2": [2, 3],
-            "client_3": [4, 5],
-            "client_4": [6, 7],
-            "client_5": [8, 9],
+            "client_1": [0],
+            "client_2": [1],
+            "client_3": [2],
+            "client_4": [3],
+            "client_5": [4],
+            "client_6": [5],
+            "client_7": [6],
+            "client_8": [7],
+            "client_9": [8],
+            "client_10": [9],
         }
     elif dataset_name == "fashion":
         in_channels = 1
         num_classes = 10
-        num_clients = 5
+        num_clients = 10
         client_label_map = {
-            "client_1": [0, 1],
-            "client_2": [2, 3],
-            "client_3": [4, 5],
-            "client_4": [6, 7],
-            "client_5": [8, 9],
+            "client_1": [0],
+            "client_2": [1],
+            "client_3": [2],
+            "client_4": [3],
+            "client_5": [4],
+            "client_6": [5],
+            "client_7": [6],
+            "client_8": [7],
+            "client_9": [8],
+            "client_10": [9],
         }
     elif dataset_name == "cifar10":
         in_channels = 3
         num_classes = 10
-        num_clients = 5
+        num_clients = 10
         client_label_map = {
-            "client_1": [0, 1],
-            "client_2": [2, 3],
-            "client_3": [4, 5],
-            "client_4": [6, 7],
-            "client_5": [8, 9],
+            "client_1": [0],
+            "client_2": [1],
+            "client_3": [2],
+            "client_4": [3],
+            "client_5": [4],
+            "client_6": [5],
+            "client_7": [6],
+            "client_8": [7],
+            "client_9": [8],
+            "client_10": [9],
         }
     elif dataset_name == "cifar100":
         in_channels = 3
@@ -170,51 +175,86 @@ def main():
             "client_9": [80, 81, 82, 83, 84, 85, 86, 87, 88, 89],
             "client_10": [90, 91, 92, 93, 94, 95, 96, 97, 98, 99],
         }
+    elif dataset_name == "svhn":
+        in_channels = 3
+        num_classes = 10
+        num_clients = 10
+        client_label_map = {
+            "client_1": [0],
+            "client_2": [1],
+            "client_3": [2],
+            "client_4": [3],
+            "client_5": [4],
+            "client_6": [5],
+            "client_7": [6],
+            "client_8": [7],
+            "client_9": [8],
+            "client_10": [9],
+        }
     elif dataset_name == "bloodmnist":
         in_channels = 3
         num_classes = 8
-        num_clients = 4
+        num_clients = 8
         client_label_map = {
-            "client_1": [0, 1],
-            "client_2": [2, 3],
-            "client_3": [4, 5],
-            "client_4": [6, 7],
+            "client_1": [0],
+            "client_2": [1],
+            "client_3": [2],
+            "client_4": [3],
+            "client_5": [4],
+            "client_6": [5],
+            "client_7": [6],
+            "client_8": [7],
         }
     elif dataset_name == "dermamnist":
         in_channels = 3
         num_classes = 7
-        num_clients = 3
+        num_clients = 7
         client_label_map = {
-            "client_1": [0, 1],
-            "client_2": [2, 3],
-            "client_3": [4, 5, 6],
+            "client_1": [0],
+            "client_2": [1],
+            "client_3": [2],
+            "client_4": [3],
+            "client_5": [4],
+            "client_6": [5],
+            "client_7": [6],
         }
     elif dataset_name == "pathmnist":
         in_channels = 3
         num_classes = 9
-        num_clients = 4
+        num_clients = 9
         client_label_map = {
-            "client_1": [0, 1],
-            "client_2": [2, 3],
-            "client_3": [4, 5],
-            "client_4": [6, 7, 8],
+            "client_1": [0],
+            "client_2": [1],
+            "client_3": [2],
+            "client_4": [3],
+            "client_5": [4],
+            "client_6": [5],
+            "client_7": [6],
+            "client_8": [7],
+            "client_9": [8],
         }
     elif dataset_name == "tissuemnist":
         in_channels = 1
         num_classes = 8
-        num_clients = 4
+        num_clients = 8
         client_label_map = {
-            "client_1": [0, 1],
-            "client_2": [2, 3],
-            "client_3": [4, 5],
-            "client_4": [6, 7],
+            "client_1": [0],
+            "client_2": [1],
+            "client_3": [2],
+            "client_4": [3],
+            "client_5": [4],
+            "client_6": [5],
+            "client_7": [6],
+            "client_8": [7],
         }
     elif dataset_name == "fitzpatrick":
         in_channels = 3
         num_classes = 114
-        num_clients = 11
-        #num_clients = 12
         client_label_map = None
+        if use_three_partition_label:
+            num_clients = 3
+        else:
+            num_clients = 6
     else:
         raise ValueError(f'dataset "{dataset_name}" not supported')
 
@@ -239,6 +279,12 @@ def main():
 
     if tag:
         save_name = save_name + f"_{tag}"
+
+    if dataset_name == "fitzpatrick":
+        if use_three_partition_label:
+            save_name = save_name + f"_three_label_partition"
+        else:
+            save_name = save_name + f"_skin_type_partition"
 
     # Make directory to write outputs
     save_dir = Path(args["save_dir"]) / save_name
@@ -281,12 +327,20 @@ def main():
 
     if dataset_name == "fitzpatrick":
         df = pd.read_csv(fitzpatrick_csv)
-        skin_types = sorted(
-            #df.aggregated_fitzpatrick_scale.unique()
-            [x for x in df.aggregated_fitzpatrick_scale.unique() if x != -1]
-        )
-        if not central:
+        if use_three_partition_label:
+            skin_labels = sorted(df.three_partition_label.unique())
+        else:
+            skin_types = sorted(
+                # df.aggregated_fitzpatrick_scale.unique()
+                [x for x in df.aggregated_fitzpatrick_scale.unique() if x != -1]
+            )
+        if central:
+            assert 1 == num_clients
+        elif use_three_partition_label:
+            assert len(skin_labels) == num_clients
+        else:
             assert len(skin_types) == num_clients
+
         if use_iid_partition:
             train_df = df.query("split == 'train'").sample(frac=1, random_state=seed)
             samples_per_client = round(len(train_df) / num_clients)
@@ -297,6 +351,13 @@ def main():
         else:
             if central:
                 train_partition = {"central": df.query("split == 'train'")}
+            elif use_three_partition_label:
+                train_partition = {
+                    str(sl): df.query(
+                        "three_partition_label == @sl and split == 'train'"
+                    )
+                    for sl in skin_labels
+                }
             else:
                 train_partition = {
                     str(st): df.query(
@@ -311,15 +372,13 @@ def main():
         }
 
         train_datasets = {
-            str(st): SkinDataset(
+            str(client): SkinDataset(
                 image_dir=fitzpatrick_image_dir,
                 label_mapping=dict(df[["md5hash", "target"]].values),
                 transform=TRAIN_TRANSFORM if use_data_augmentation else TEST_TRANSFORM,
             )
-            for st, df in train_partition.items()
+            for client, df in train_partition.items()
         }
-        for ds in train_datasets.values():
-            ds.subset(samples_per_client)
         val_map = dict(val_df[["md5hash", "target"]].values)
         val_dataset = SkinDataset(
             image_dir=fitzpatrick_image_dir,
@@ -337,11 +396,11 @@ def main():
             DataLoader(
                 ds,
                 batch_size=batch_size,
-                sampler=samplers[st],
+                sampler=samplers[client],
                 num_workers=num_workers,
                 pin_memory=True,
             )
-            for st, ds in train_datasets.items()
+            for client, ds in train_datasets.items()
         ]
         val_loader = DataLoader(
             val_dataset,
@@ -659,6 +718,13 @@ def main():
                     ]
                     for i in range(num_clients)
                 }
+            elif use_three_partition_label:
+                train_partition = {
+                    str(st): df.query(
+                        "three_partition_label == @sl and split == 'train'"
+                    )
+                    for sl in skin_labels
+                }
             else:
                 train_partition = {
                     str(st): df.query(
@@ -674,8 +740,6 @@ def main():
                 )
                 for st, df in train_partition.items()
             }
-            for ds in train_datasets.values():
-                ds.subset(samples_per_client)
             train_loaders = [
                 DataLoader(
                     ds,
@@ -684,7 +748,7 @@ def main():
                     num_workers=num_workers,
                     pin_memory=True,
                 )
-                for st, ds in train_datasets.items()
+                for ds in train_datasets.values()
             ]
         else:
             _datasets = get_datasets(

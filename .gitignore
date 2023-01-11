@@ -1,6 +1,7 @@
 checkpoints/*
 data/*
 experiments/*
+old_experiments/*
 plots/*
 outputs/*
 **/.ipynb_checkpoints
