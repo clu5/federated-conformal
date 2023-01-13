@@ -193,3 +193,46 @@ def draw_reliability_graph(logits, targets, use_temp_scale=True, plot=False, tit
     plt.show()
 
     # plt.savefig('calibrated_network.png', bbox_inches='tight')
+    
+    
+def client_temp_scale(experiments, clients_class_map=None, use_three_partition_label=False, val_df=None, test_df=None):
+    if clients_class_map is None and val_df is not None and test_df is not None:
+        if use_three_partition_label:
+            partition = 'three_partition_label'
+        else:
+            partition = 'aggregated_fitzpatrick_scale'
+        val_index_map = {
+            str(part): (val_df[partition] == part).values for part in 
+            sorted(val_df[partition].unique())
+        }
+        test_index_map = {
+            str(part): (test_df[partition] == part).values for part in 
+            sorted(test_df[partition].unique())
+        }
+    else:
+        val_index_map = {
+            k: sum(experiments['tct']['val_targets'] == k for k in v).bool()
+            for k, v in clients_class_map.items()
+        }
+        test_index_map = {
+            k: sum(experiments['tct']['test_targets'] == k for k in v).bool()
+            for k, v in clients_class_map.items()
+        }
+
+    for k, v in experiments.items():
+        val_logits = v['val_scores']
+        test_logits = v['test_scores']
+        val_targets = v['val_targets']
+        test_targets = v['test_targets']
+
+        clients_temp = {}
+        for client, index in val_index_map.items():
+            client_val_logits = val_logits[index]
+            client_val_targets = val_targets[index]
+            temp = temp_scale(client_val_logits, client_val_targets, plot=False)
+            clients_temp[client] = temp
+        # print(k.center(30, '-'))
+        mean_temp = torch.mean(torch.cat(list(clients_temp.values())))
+
+        experiments[k]['temp_val_scores'] = torch.softmax(val_logits / mean_temp, 1)
+        experiments[k]['temp_test_scores'] = torch.softmax(test_logits / mean_temp, 1)

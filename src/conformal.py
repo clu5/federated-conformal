@@ -30,15 +30,15 @@ def inference_lac(scores, qhat, allow_empty_sets=False):
 
 
 def calibrate_aps(scores, targets, alpha=0.1, return_dist=False):
-    n = scores.shape[0]
-    cal_smx = scores.numpy()
-    cal_labels = targets.numpy()
-    # Get scores. calib_X.shape[0] == calib_Y.shape[0] == n
-    cal_pi = cal_smx.argsort(1)[:,::-1]; cal_srt = np.take_along_axis(cal_smx,cal_pi,axis=1).cumsum(axis=1)
-    cal_scores = np.take_along_axis(cal_srt,cal_pi.argsort(axis=1),axis=1)[range(n),cal_labels]
-    # Get the score quantile
-    qhat = np.quantile(cal_scores, np.ceil((n+1)*(1-alpha))/n, interpolation='higher')
-    return qhat
+    # n = scores.shape[0]
+    # cal_smx = scores.numpy()
+    # cal_labels = targets.numpy()
+    # # Get scores. calib_X.shape[0] == calib_Y.shape[0] == n
+    # cal_pi = cal_smx.argsort(1)[:,::-1]; cal_srt = np.take_along_axis(cal_smx,cal_pi,axis=1).cumsum(axis=1)
+    # cal_scores = np.take_along_axis(cal_srt,cal_pi.argsort(axis=1),axis=1)[range(n),cal_labels]
+    # # Get the score quantile
+    # qhat = np.quantile(cal_scores, np.ceil((n+1)*(1-alpha))/n, interpolation='higher')
+    # return qhat
 
     assert scores.size(0) == targets.size(0)
     n = torch.tensor(targets.size(0))
@@ -126,19 +126,25 @@ def inference_raps(
     )
     return prediction_sets
 
-def get_coverage(psets, targets):
-    psets = torch.tensor(psets)
-    targets = torch.tensor(targets)
+def get_coverage(psets, targets, precision=None):
+    psets = psets.clone().detach()
+    targets = targets.clone().detach()
     n = psets.shape[0]
-    return psets[torch.arange(n), targets].float().mean().item()
+    coverage = psets[torch.arange(n), targets].float().mean().item()
+    if precision is not None:
+        coverage = round(coverage, precision)
+    return coverage
 
-def get_size(psets):
-    psets = torch.tensor(psets)
-    return psets.sum(1).float().mean().item()
+def get_size(psets, precision=1):
+    psets = psets.clone().detach()
+    size = psets.sum(1).float().mean().item()
+    if precision is not None:
+        size = round(size, precision)
+    return size
 
 def get_coverage_by_class(psets, targets, num_classes):
-    psets = torch.tensor(psets)
-    targets = torch.tensor(targets)
+    psets = psets.clone().detach()
+    targets = targets.clone().detach()
     results = {}
     for c in range(num_classes):
         index = targets == c
@@ -148,8 +154,8 @@ def get_coverage_by_class(psets, targets, num_classes):
     return results
 
 def get_efficiency_by_class(psets, targets, num_classes):
-    psets = torch.tensor(psets)
-    targets = torch.tensor(targets)
+    psets = psets.clone().detach()
+    targets = targets.clone().detach()
     sizes = psets.sum(1)
     results = {}
     for c in range(num_classes):
@@ -159,7 +165,7 @@ def get_efficiency_by_class(psets, targets, num_classes):
     return results
 
 
-def get_coverage_size_over_alphas(cal_scores, cal_targets, test_scores, test_targets, alphas, method='lac', allow_empty_sets=False, k_reg=1, lam_reg=0.01, decentral=False, client_index_map=None):
+def get_coverage_size_over_alphas(cal_scores, cal_targets, test_scores, test_targets, alphas, method='lac', allow_empty_sets=False, k_reg=1, lam_reg=0.01, decentral=False, client_index_map=None, precision=4):
     n = test_targets.shape[0]
     # cal_scores = torch.cat([cal_scores, test_scores[n//2:]])
     # cal_targets = torch.cat([cal_targets, test_targets[n//2:]])
@@ -195,7 +201,7 @@ def get_coverage_size_over_alphas(cal_scores, cal_targets, test_scores, test_tar
         else:
             raise ValueError()
             
-        coverage_results[alpha] = get_coverage(psets, test_targets)
+        coverage_results[alpha] = get_coverage(psets, test_targets, precision=precision)
         size_results[alpha] = get_size(psets)
 
     return dict(coverage=coverage_results, size=size_results)
@@ -242,8 +248,8 @@ def get_distributed_quantile(
     sketch_q = decentral_sketch.get_quantile_value(np.ceil((n+1)*(1-alpha))/n)
     decentral_q = digest.percentile(round(100*(np.ceil((n+1)*(1-alpha))/n)))
     avg_q /= len(client_index_map)
-    print(avg_q, decentral_q, sketch_q, np.ceil((n+1)*(1-alpha))/n)
+    # print(avg_q, decentral_q, sketch_q, np.ceil((n+1)*(1-alpha))/n)
             
-    # return decentral_q
+    return decentral_q
     # return avg_q
-    return sketch_q
+    # return sketch_q
