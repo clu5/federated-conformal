@@ -314,7 +314,7 @@ def make_model(
         model.conv1 = nn.Conv2d(
             in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
         )
-        model.bn1 = nn.BatchNorm2d(64)
+        # model.bn1 = nn.BatchNorm2d(64)
         model.fc = nn.Linear(in_features=512, out_features=num_classes, bias=True)
     elif architecture == "resnet50":
         if pretrained:
@@ -324,7 +324,7 @@ def make_model(
         model.conv1 = nn.Conv2d(
             in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
         )
-        model.bn1 = nn.BatchNorm2d(64)
+        # model.bn1 = nn.BatchNorm2d(64)
         model.fc = nn.Linear(in_features=2048, out_features=num_classes, bias=True)
     elif architecture == "resnet101":
         if pretrained:
@@ -334,7 +334,7 @@ def make_model(
         model.conv1 = nn.Conv2d(
             in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
         )
-        model.bn1 = nn.BatchNorm2d(64)
+        # model.bn1 = nn.BatchNorm2d(64)
         model.fc = nn.Linear(in_features=2048, out_features=num_classes, bias=True)
     elif architecture == "efficientnet-b0":
         if pretrained:
@@ -383,7 +383,7 @@ def make_model(
         else:
             model = models.efficientnet_b3()
         model.features[0][0] = nn.Conv2d(
-            in_channels, 32, kernel_size=3, stride=2, padding=1, bias=False
+            in_channels, 40, kernel_size=3, stride=2, padding=1, bias=False
         )
         model.classifier[1] = nn.Linear(
             in_features=1536, out_features=num_classes, bias=True
@@ -396,10 +396,23 @@ def make_model(
         else:
             model = models.efficientnet_b4()
         model.features[0][0] = nn.Conv2d(
-            in_channels, 32, kernel_size=3, stride=2, padding=1, bias=False
+            in_channels, 48, kernel_size=3, stride=2, padding=1, bias=False
         )
         model.classifier[1] = nn.Linear(
             in_features=1792, out_features=num_classes, bias=True
+        )
+    elif architecture == "efficientnet-b5":
+        if pretrained:
+            model = models.efficientnet_b5(
+                weights=models.EfficientNet_B5_Weights.IMAGENET1K_V1
+            )
+        else:
+            model = models.efficientnet_b5()
+        model.features[0][0] = nn.Conv2d(
+            in_channels, 48, kernel_size=3, stride=2, padding=1, bias=False
+        )
+        model.classifier[1] = nn.Linear(
+            in_features=2048, out_features=num_classes, bias=True
         )
     else:
         raise ValueError(f'Architecture "{architecture}" not supported.')
@@ -420,19 +433,36 @@ def replace_last_layer(model: torch.nn.Module, architecture: str, num_classes: i
     elif architecture in (
         "resnet18",
         "resnet34",
-        "resenet50",
     ):
         model.fc = nn.Linear(
             in_features=512, out_features=num_classes, bias=True
         ).cuda()
+    elif architecture == "resnet50":
+        model.fc = nn.Linear(
+            in_features=2048, out_features=num_classes, bias=True
+        ).cuda()
     elif architecture in (
         "efficientnet-b0",
         "efficientnet-b1",
-        "efficientnet-b2",
-        "efficientnet-b3",
     ):
         model.classifier[1] = nn.Linear(
             in_features=1280, out_features=num_classes, bias=True
+        )
+    elif architecture == "efficientnet-b2":
+        model.classifier[1] = nn.Linear(
+            in_features=1408, out_features=num_classes, bias=True
+        )
+    elif architecture == "efficientnet-b3":
+        model.classifier[1] = nn.Linear(
+            in_features=1536, out_features=num_classes, bias=True
+        )
+    elif architecture == "efficientnet-b4":
+        model.classifier[1] = nn.Linear(
+            in_features=1792, out_features=num_classes, bias=True
+        )
+    elif architecture == "efficientnet-b5":
+        model.classifier[1] = nn.Linear(
+            in_features=2048, out_features=num_classes, bias=True
         )
     else:
         raise ValueError(f'Architecture "{architecture}" not supported.')
@@ -604,6 +634,7 @@ def scaffold_update(
     M: int = 200,
     lr_local: float = 0.00001,
     num_classes: int = 10,
+    use_squared_loss: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     # set up data / eNTK
     grads_data = grads_data.float().cuda()
@@ -627,12 +658,20 @@ def scaffold_update(
 
     # local gd
     for local_iter in range(M):
-        theta_hat_local -= lr_local * (
-            (1.0 / num_samples) * grads_data.t()
-            # @ (grads_data @ theta_hat_local - targets_onehot)
-            @ (torch.softmax(grads_data @ theta_hat_local, 1) - targets_onehot)
-            - h_i_client_update
-        )
+        if use_squared_loss:
+            theta_hat_local -= lr_local * (
+                (1.0 / num_samples)
+                * grads_data.t()
+                @ (grads_data @ theta_hat_local - targets_onehot)
+                - h_i_client_update
+            )
+        else:
+            theta_hat_local -= lr_local * (
+                (1.0 / num_samples)
+                * grads_data.t()
+                @ (torch.softmax(grads_data @ theta_hat_local, 1) - targets_onehot)
+                - h_i_client_update
+            )
 
     # del targets
     del targets_onehot

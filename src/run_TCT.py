@@ -24,7 +24,7 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import datasets, models, transforms
 from tqdm import tqdm
 
-from conformal import (calibrate_aps, calibrate_lac, inference_aps,
+from conformal import (calibrate_lac, calibrate_lac, inference_lac,
                        inference_lac)
 from skin_dataset import (TEST_TRANSFORM, TRAIN_TRANSFORM, SkinDataset,
                           get_weighted_sampler)
@@ -61,13 +61,14 @@ def main():
     parser.add_argument("--central", action="store_true")
     parser.add_argument("--momentum", default=0.9, type=float)
     parser.add_argument("--use_data_augmentation", action="store_true")
-    parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrick_v3.csv", type=str)
+    parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrick_v4.csv", type=str)
     parser.add_argument("--pretrained", action="store_true")
     parser.add_argument("--num_random_grad", default=100000, type=int)
     parser.add_argument("--start_from_stage1", action="store_true")
     parser.add_argument("--override", action="store_true")
     parser.add_argument("--tag", default="", type=str)
     parser.add_argument("--use_three_partition_label", action="store_true")
+    parser.add_argument("--use_squared_loss", action="store_true")
     parser.add_argument(
         "--fitzpatrick_image_dir",
         default="../data/fitzpatrick17k/images",
@@ -108,6 +109,7 @@ def main():
     override = args["override"]
     tag = args["tag"]
     use_three_partition_label = args["use_three_partition_label"]
+    use_squared_loss = args["use_squared_loss"]
 
     dataset_name = args["dataset"]
 
@@ -496,11 +498,11 @@ def main():
 
         # Instantiate models and optimizers
         global_model = torch.nn.DataParallel(
-            make_model(architecture, in_channels, num_classes)
+            make_model(architecture, in_channels, num_classes, pretrained=pretrained)
         ).cuda()
         client_models = [
             torch.nn.DataParallel(
-                make_model(architecture, in_channels, num_classes)
+                make_model(architecture, in_channels, num_classes, pretrained=pretrained)
             ).cuda()
             for _ in range(num_clients)
         ]
@@ -720,7 +722,7 @@ def main():
                 }
             elif use_three_partition_label:
                 train_partition = {
-                    str(st): df.query(
+                    str(sl): df.query(
                         "three_partition_label == @sl and split == 'train'"
                     )
                     for sl in skin_labels
@@ -883,6 +885,7 @@ def main():
                     M=num_local_steps,
                     lr_local=lr_stage2,
                     num_classes=num_classes,
+                    use_squared_loss=use_squared_loss,
                 )
                 client_hi_s[i] = h_i_client_update * 1.0
                 client_thetas[i] = theta_hat_update * 1.0
@@ -917,12 +920,12 @@ def main():
             # T = 1
             val_scores = torch.softmax(logits_class_val / T, 1)
             test_scores = torch.softmax(logits_class_test / T, 1)
-            q_10 = calibrate_aps(val_scores, target_val, alpha=0.1)
-            q_20 = calibrate_aps(val_scores, target_val, alpha=0.2)
-            q_30 = calibrate_aps(val_scores, target_val, alpha=0.3)
-            psets_10 = inference_aps(test_scores, q_10)
-            psets_20 = inference_aps(test_scores, q_20)
-            psets_30 = inference_aps(test_scores, q_30)
+            q_10 = calibrate_lac(val_scores, target_val, alpha=0.1)
+            q_20 = calibrate_lac(val_scores, target_val, alpha=0.2)
+            q_30 = calibrate_lac(val_scores, target_val, alpha=0.3)
+            psets_10 = inference_lac(test_scores, q_10)
+            psets_20 = inference_lac(test_scores, q_20)
+            psets_30 = inference_lac(test_scores, q_30)
             size_10 = psets_10.sum(1).float().mean().item()
             size_20 = psets_20.sum(1).float().mean().item()
             size_30 = psets_30.sum(1).float().mean().item()
