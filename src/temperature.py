@@ -1,6 +1,6 @@
 import cvxpy as cx
-import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -17,17 +17,16 @@ def tune_temp(
     logits = np.array(logits)
 
     if binary_search:
-
         logits = torch.FloatTensor(logits)
         labels = torch.LongTensor(labels)
         t_guess = torch.FloatTensor([0.5 * (lower + upper)]).requires_grad_()
 
         while upper - lower > eps:
             if (
-                torch.autograd.grad(F.cross_entropy(logits / t_guess, labels), t_guess)[
-                    0
-                ]
-                > 0
+                torch.autograd.grad(
+                    F.cross_entropy(logits / t_guess, labels),
+                    t_guess,
+                )[0] > 0
             ):
                 upper = 0.5 * (lower + upper)
             else:
@@ -72,10 +71,11 @@ def calc_bins(scores, targets):
     for bin in range(num_bins):
         bin_sizes[bin] = len(scores[binned == bin])
         if bin_sizes[bin] > 0:
-            bin_accs[bin] = (targets[binned==bin]).sum() / bin_sizes[bin]
-            bin_confs[bin] = (scores[binned==bin]).sum() / bin_sizes[bin]
+            bin_accs[bin] = (targets[binned == bin]).sum() / bin_sizes[bin]
+            bin_confs[bin] = (scores[binned == bin]).sum() / bin_sizes[bin]
 
     return bins, binned, bin_accs, bin_confs, bin_sizes
+
 
 def get_calibration_metrics(scores, targets):
     ECE = 0
@@ -89,13 +89,18 @@ def get_calibration_metrics(scores, targets):
 
     return ECE, MCE
 
+
 def temp_scale(logits, labels, plot=True):
-    temperature = torch.nn.Parameter(torch.ones(1))#.to('cuda' if torch.cuda.is_available() else 'cpu')
+    temperature = torch.nn.Parameter(
+        torch.ones(1)
+    )  # .to('cuda' if torch.cuda.is_available() else 'cpu')
     # print(temperature.is_leaf)
     criterion = torch.nn.CrossEntropyLoss()
 
     # Removing strong_wolfe line search results in jump after 50 epochs
-    optimizer = torch.optim.LBFGS([temperature], lr=0.001, max_iter=10000, line_search_fn='strong_wolfe')
+    optimizer = torch.optim.LBFGS(
+        [temperature], lr=0.001, max_iter=10000, line_search_fn="strong_wolfe"
+    )
 
     temps = []
     losses = []
@@ -109,7 +114,8 @@ def temp_scale(logits, labels, plot=True):
 
     optimizer.step(_eval)
 
-    if plot: print('Final T_scaling factor: {:.2f}'.format(temperature.item()))
+    if plot:
+        print("Final T_scaling factor: {:.2f}".format(temperature.item()))
 
     if plot:
         plt.figure(figsize=(9, 2))
@@ -122,22 +128,24 @@ def temp_scale(logits, labels, plot=True):
     return temperature.detach()
 
 
-def draw_reliability_graph(logits, targets, use_temp_scale=True, plot=False, title=None):
-    
+def draw_reliability_graph(
+    logits, targets, use_temp_scale=True, plot=False, title=None
+):
+
     if use_temp_scale:
         T = temp_scale(logits, targets, plot=plot)
         temp_scores = torch.softmax(logits / T, 1)
-        
+
     scores = torch.softmax(logits, 1)
     targets = torch.nn.functional.one_hot(targets)
-        
+
     ECE, MCE = get_calibration_metrics(scores, targets)
     bins, _, bin_accs, _, _ = calc_bins(scores, targets)
     if use_temp_scale:
         temp_ECE, temp_MCE = get_calibration_metrics(temp_scores, targets)
         temp_bins, _, temp_bin_accs, _, _ = calc_bins(temp_scores, targets)
 
-    fig, ax = plt.subplots(ncols=2 , figsize=(5*(2 if use_temp_scale else 1), 4))
+    fig, ax = plt.subplots(ncols=2, figsize=(5 * (2 if use_temp_scale else 1), 4))
     if title is not None:
         fig.suptitle(title, fontsize=24)
 
@@ -149,81 +157,103 @@ def draw_reliability_graph(logits, targets, use_temp_scale=True, plot=False, tit
         ax[1].set_ylim(0, 1)
 
     # x/y labels
-    ax[0].set_xlabel('Confidence')
-    ax[0].set_ylabel('Accuracy')
+    ax[0].set_xlabel("Confidence")
+    ax[0].set_ylabel("Accuracy")
     if use_temp_scale:
-        ax[1].set_xlabel('Confidence')
-        ax[1].set_ylabel('Accuracy')
+        ax[1].set_xlabel("Confidence")
+        ax[1].set_ylabel("Accuracy")
 
     # Create grid
-    # ax.set_axisbelow(True) 
+    # ax.set_axisbelow(True)
     # ax.grid(color='gray', linestyle='dashed')
 
     # Error bars
-    ax[0].bar(bins, bins,  width=0.1, alpha=0.3, edgecolor='black', color='r', hatch='\\')
+    ax[0].bar(
+        bins, bins, width=0.1, alpha=0.3, edgecolor="black", color="r", hatch="\\"
+    )
     if use_temp_scale:
-        ax[1].bar(temp_bins, temp_bins,  width=0.1, alpha=0.3, edgecolor='black', color='r', hatch='\\')
+        ax[1].bar(
+            temp_bins,
+            temp_bins,
+            width=0.1,
+            alpha=0.3,
+            edgecolor="black",
+            color="r",
+            hatch="\\",
+        )
 
     # Draw bars and identity line
-    ax[0].bar(bins, bin_accs, width=0.1, alpha=1, edgecolor='black', color='b')
-    ax[0].plot([0,1],[0,1], '--', color='gray', linewidth=2)
+    ax[0].bar(bins, bin_accs, width=0.1, alpha=1, edgecolor="black", color="b")
+    ax[0].plot([0, 1], [0, 1], "--", color="gray", linewidth=2)
     if use_temp_scale:
-        ax[1].bar(temp_bins, temp_bin_accs, width=0.1, alpha=1, edgecolor='black', color='b')
-        ax[1].plot([0,1],[0,1], '--', color='gray', linewidth=2)
+        ax[1].bar(
+            temp_bins, temp_bin_accs, width=0.1, alpha=1, edgecolor="black", color="b"
+        )
+        ax[1].plot([0, 1], [0, 1], "--", color="gray", linewidth=2)
 
     # Equally spaced axes
-    ax[0].set_aspect('equal', adjustable='box')
+    ax[0].set_aspect("equal", adjustable="box")
     if use_temp_scale:
-        ax[1].set_aspect('equal', adjustable='box')
+        ax[1].set_aspect("equal", adjustable="box")
 
     # ECE and MCE legend
-    ECE_patch = mpatches.Patch(color='green', label='ECE = {:.2f}%'.format(ECE*100))
-    MCE_patch = mpatches.Patch(color='red', label='MCE = {:.2f}%'.format(MCE*100))
+    ECE_patch = mpatches.Patch(color="green", label="ECE = {:.2f}%".format(ECE * 100))
+    MCE_patch = mpatches.Patch(color="red", label="MCE = {:.2f}%".format(MCE * 100))
     ax[0].legend(handles=[ECE_patch, MCE_patch])
     if use_temp_scale:
-        temp_ECE_patch = mpatches.Patch(color='green', label='ECE = {:.2f}%'.format(temp_ECE*100))
-        temp_MCE_patch = mpatches.Patch(color='red', label='MCE = {:.2f}%'.format(temp_MCE*100))
+        temp_ECE_patch = mpatches.Patch(
+            color="green", label="ECE = {:.2f}%".format(temp_ECE * 100)
+        )
+        temp_MCE_patch = mpatches.Patch(
+            color="red", label="MCE = {:.2f}%".format(temp_MCE * 100)
+        )
         ax[1].legend(handles=[temp_ECE_patch, temp_MCE_patch])
-        
-    ax[0].set_title('no temperature', fontsize=16)
+
+    ax[0].set_title("no temperature", fontsize=16)
     if use_temp_scale:
-        ax[1].set_title('temperature', fontsize=16)
+        ax[1].set_title("temperature", fontsize=16)
 
     fig.tight_layout()
     plt.show()
 
     # plt.savefig('calibrated_network.png', bbox_inches='tight')
-    
-    
-def client_temp_scale(experiments, clients_class_map=None, use_three_partition_label=False, val_df=None, test_df=None):
+
+
+def client_temp_scale(
+    experiments,
+    clients_class_map=None,
+    use_three_partition_label=False,
+    val_df=None,
+    test_df=None,
+):
     if clients_class_map is None and val_df is not None and test_df is not None:
         if use_three_partition_label:
-            partition = 'three_partition_label'
+            partition = "three_partition_label"
         else:
-            partition = 'aggregated_fitzpatrick_scale'
+            partition = "aggregated_fitzpatrick_scale"
         val_index_map = {
-            str(part): (val_df[partition] == part).values for part in 
-            sorted(val_df[partition].unique())
+            str(part): (val_df[partition] == part).values
+            for part in sorted(val_df[partition].unique())
         }
         test_index_map = {
-            str(part): (test_df[partition] == part).values for part in 
-            sorted(test_df[partition].unique())
+            str(part): (test_df[partition] == part).values
+            for part in sorted(test_df[partition].unique())
         }
     else:
         val_index_map = {
-            k: sum(experiments['tct']['val_targets'] == k for k in v).bool()
+            k: sum(experiments["tct"]["val_targets"] == k for k in v).bool()
             for k, v in clients_class_map.items()
         }
         test_index_map = {
-            k: sum(experiments['tct']['test_targets'] == k for k in v).bool()
+            k: sum(experiments["tct"]["test_targets"] == k for k in v).bool()
             for k, v in clients_class_map.items()
         }
 
     for k, v in experiments.items():
-        val_logits = v['val_scores']
-        test_logits = v['test_scores']
-        val_targets = v['val_targets']
-        test_targets = v['test_targets']
+        val_logits = v["val_scores"]
+        test_logits = v["test_scores"]
+        val_targets = v["val_targets"]
+        test_targets = v["test_targets"]
 
         clients_temp = {}
         for client, index in val_index_map.items():
@@ -234,5 +264,5 @@ def client_temp_scale(experiments, clients_class_map=None, use_three_partition_l
         # print(k.center(30, '-'))
         mean_temp = torch.mean(torch.cat(list(clients_temp.values())))
 
-        experiments[k]['temp_val_scores'] = torch.softmax(val_logits / mean_temp, 1)
-        experiments[k]['temp_test_scores'] = torch.softmax(test_logits / mean_temp, 1)
+        experiments[k]["temp_val_scores"] = torch.softmax(val_logits / mean_temp, 1)
+        experiments[k]["temp_test_scores"] = torch.softmax(test_logits / mean_temp, 1)

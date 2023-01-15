@@ -1,7 +1,7 @@
 import argparse
 import copy
 import sys
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import medmnist
 import numpy as np
@@ -500,10 +500,17 @@ def client_update(
     optimizer: torch.optim.Optimizer,
     train_loader: DataLoader,
     epoch: int = 5,
+    fedprox_mu: float = 0,
+    global_model: Optional[torch.nn.Module] = None,
 ) -> float:
     """Train a client_model on the train_loder data."""
     criterion = nn.CrossEntropyLoss().cuda()
     client_model.train()
+
+    # for fedprox
+    if fedprox_mu > 0 and global_model is not None:
+        global_weight_collector = list(global_model.parameters())
+
     for e in range(epoch):
         total_loss = 0
         for batch_idx, (data, target) in enumerate(train_loader):
@@ -513,6 +520,16 @@ def client_update(
             # score = F.log_softmax(output, dim=1)
             # loss = F.nll_loss(score, target)
             loss = criterion(output, target)
+
+            if fedprox_mu > 0 and global_model is not None:
+                fedprox_reg = 0.0
+                for param_index, param in enumerate(client_model.parameters()):
+                    fedprox_reg += (fedprox_mu / 2) * torch.norm(
+                        param - global_weight_collector[param_index]
+                    ) ** 2
+
+                loss += fedprox_reg
+
             loss.backward()
             optimizer.step()
             total_loss += loss.item()

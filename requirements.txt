@@ -1,8 +1,10 @@
 black
 cvxpy
+ddsketch
 flake8
 isort
 medmnist
+tdigest
 torch
 torchvision
 tqdm

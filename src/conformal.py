@@ -3,6 +3,7 @@ import torch
 from ddsketch import DDSketch
 from tdigest import TDigest
 
+
 def calibrate_lac(scores, targets, alpha=0.1, return_dist=False):
     assert scores.size(0) == targets.size(0)
     n = torch.tensor(targets.size(0))
@@ -91,20 +92,29 @@ def calibrate_raps(
     score_dist = torch.take_along_dim(
         reg_sorted_scores.cumsum(1), sorted_index.argsort(1), 1
     )[torch.arange(n), targets]
-    score_dist -= torch.rand(n) * reg_sorted_scores[torch.arange(n), torch.where(sorted_index == targets[:, None])[1]]
+    score_dist -= (
+        torch.rand(n)
+        * reg_sorted_scores[
+            torch.arange(n), torch.where(sorted_index == targets[:, None])[1]
+        ]
+    )
     assert (
         0 <= torch.ceil((n + 1) * (1 - alpha)) / n <= 1
     ), f"{alpha=} {n=} {torch.ceil((n+1)*(1-alpha))/n=}"
     qhat = torch.quantile(
         score_dist, torch.ceil((n + 1) * (1 - alpha)) / n, interpolation="higher"
     )
-    assert 0 < qhat <= 1, f'{qhat=:.4f}'
+    assert 0 < qhat <= 1, f"{qhat=:.4f}"
     # qhat = torch.minimum(torch.tensor(1.0), qhat)
     return (qhat.item(), score_dist) if return_dist else qhat.item()
 
 
 def inference_raps(
-    scores, qhat, allow_empty_sets=False, k_reg=1, lam_reg=0.01, 
+    scores,
+    qhat,
+    allow_empty_sets=False,
+    k_reg=1,
+    lam_reg=0.01,
 ):
     num_classes = scores.shape[1]
     reg = torch.cat(
@@ -116,7 +126,10 @@ def inference_raps(
     sorted_index = scores.argsort(1, descending=True)
     sorted_scores = torch.take_along_dim(scores, sorted_index, dim=1)
     reg_sorted_scores = sorted_scores + reg
-    elements_mask = (reg_sorted_scores.cumsum(dim=1) - torch.rand(*reg_sorted_scores.shape) * reg_sorted_scores) <= qhat
+    elements_mask = (
+        reg_sorted_scores.cumsum(dim=1)
+        - torch.rand(*reg_sorted_scores.shape) * reg_sorted_scores
+    ) <= qhat
 
     if not allow_empty_sets:
         elements_mask[:, 0] = True
@@ -125,6 +138,7 @@ def inference_raps(
         elements_mask, sorted_index.argsort(axis=1), axis=1
     )
     return prediction_sets
+
 
 def get_coverage(psets, targets, precision=None):
     psets = psets.clone().detach()
@@ -135,12 +149,14 @@ def get_coverage(psets, targets, precision=None):
         coverage = round(coverage, precision)
     return coverage
 
+
 def get_size(psets, precision=1):
     psets = psets.clone().detach()
     size = psets.sum(1).float().mean().item()
     if precision is not None:
         size = round(size, precision)
     return size
+
 
 def get_coverage_by_class(psets, targets, num_classes):
     psets = psets.clone().detach()
@@ -152,6 +168,7 @@ def get_coverage_by_class(psets, targets, num_classes):
         targets_c = targets[index]
         results[c] = get_coverage(psets_c, targets_c)
     return results
+
 
 def get_efficiency_by_class(psets, targets, num_classes):
     psets = psets.clone().detach()
@@ -165,7 +182,20 @@ def get_efficiency_by_class(psets, targets, num_classes):
     return results
 
 
-def get_coverage_size_over_alphas(cal_scores, cal_targets, test_scores, test_targets, alphas, method='lac', allow_empty_sets=False, k_reg=1, lam_reg=0.01, decentral=False, client_index_map=None, precision=4):
+def get_coverage_size_over_alphas(
+    cal_scores,
+    cal_targets,
+    test_scores,
+    test_targets,
+    alphas,
+    method="lac",
+    allow_empty_sets=False,
+    k_reg=1,
+    lam_reg=0.01,
+    decentral=False,
+    client_index_map=None,
+    precision=4,
+):
     n = test_targets.shape[0]
     # cal_scores = torch.cat([cal_scores, test_scores[n//2:]])
     # cal_targets = torch.cat([cal_targets, test_targets[n//2:]])
@@ -176,31 +206,61 @@ def get_coverage_size_over_alphas(cal_scores, cal_targets, test_scores, test_tar
     # print(cal_scores)
     coverage_results, size_results = {}, {}
     for alpha in alphas:
-        if method == 'lac':
+        if method == "lac":
             if decentral and client_index_map is not None:
-                qhat = get_distributed_quantile(cal_scores, cal_targets, alpha=alpha, method='lac', client_index_map=client_index_map)
+                qhat = get_distributed_quantile(
+                    cal_scores,
+                    cal_targets,
+                    alpha=alpha,
+                    method="lac",
+                    client_index_map=client_index_map,
+                )
             else:
                 qhat = calibrate_lac(cal_scores, cal_targets, alpha=alpha)
             psets = inference_lac(test_scores, qhat, allow_empty_sets=allow_empty_sets)
-        elif method == 'aps':
+        elif method == "aps":
             if decentral and client_index_map is not None:
-                qhat = get_distributed_quantile(cal_scores, cal_targets, alpha=alpha, method='lac', client_index_map=client_index_map)
+                qhat = get_distributed_quantile(
+                    cal_scores,
+                    cal_targets,
+                    alpha=alpha,
+                    method="lac",
+                    client_index_map=client_index_map,
+                )
             else:
                 qhat = calibrate_aps(cal_scores, cal_targets, alpha=alpha)
             psets = inference_aps(test_scores, qhat, allow_empty_sets=allow_empty_sets)
-        elif method == 'raps':
+        elif method == "raps":
             if decentral and client_index_map is not None:
-                qhat = get_distributed_quantile(cal_scores, cal_targets, alpha=alpha, method='lac', client_index_map=client_index_map)
+                qhat = get_distributed_quantile(
+                    cal_scores,
+                    cal_targets,
+                    alpha=alpha,
+                    method="lac",
+                    client_index_map=client_index_map,
+                )
             else:
-                qhat = calibrate_raps(cal_scores, cal_targets, alpha=alpha, k_reg=k_reg, lam_reg=lam_reg)
-            psets = inference_raps(test_scores, qhat, allow_empty_sets=allow_empty_sets, k_reg=k_reg, lam_reg=lam_reg)
-        elif method == 'naive_lac':
-            psets = inference_lac(test_scores, 1 - alpha, allow_empty_sets=allow_empty_sets)
-        elif method == 'naive_aps':
-            psets = inference_aps(test_scores, 1 - alpha, allow_empty_sets=allow_empty_sets)
+                qhat = calibrate_raps(
+                    cal_scores, cal_targets, alpha=alpha, k_reg=k_reg, lam_reg=lam_reg
+                )
+            psets = inference_raps(
+                test_scores,
+                qhat,
+                allow_empty_sets=allow_empty_sets,
+                k_reg=k_reg,
+                lam_reg=lam_reg,
+            )
+        elif method == "naive_lac":
+            psets = inference_lac(
+                test_scores, 1 - alpha, allow_empty_sets=allow_empty_sets
+            )
+        elif method == "naive_aps":
+            psets = inference_aps(
+                test_scores, 1 - alpha, allow_empty_sets=allow_empty_sets
+            )
         else:
             raise ValueError()
-            
+
         coverage_results[alpha] = get_coverage(psets, test_targets, precision=precision)
         size_results[alpha] = get_size(psets)
 
@@ -208,18 +268,24 @@ def get_coverage_size_over_alphas(cal_scores, cal_targets, test_scores, test_tar
 
 
 def get_distributed_quantile(
-    cal_scores, cal_targets, alpha: float, method='lac', k_reg=None, lam_reg=None, client_index_map: dict = None, 
+    cal_scores,
+    cal_targets,
+    alpha: float,
+    method="lac",
+    k_reg=None,
+    lam_reg=None,
+    client_index_map: dict = None,
 ):
     # choose score function
-    if method == 'lac':
+    if method == "lac":
         score_func = calibrate_lac
-    elif method == 'aps':
+    elif method == "aps":
         score_func = calibrate_aps
-    elif method == 'raps':
+    elif method == "raps":
         score_func = partial(calibrate_raps, k_reg=k_reg, lam_reg=lam_reg)
     else:
-        raise ValueError(f'{method} score function not implemented')
-        
+        raise ValueError(f"{method} score function not implemented")
+
     decentral_sketch = DDSketch()
     digest = TDigest()
     avg_q = 0
@@ -228,28 +294,28 @@ def get_distributed_quantile(
         scores = cal_scores[index]
         targets = cal_targets[index]
         n += targets.shape[0]
-        
+
         assert len(scores), len(targets)
-        
+
         q, score_dist = score_func(scores, targets, alpha=alpha, return_dist=True)
-        
+
         # add client scores to quantile sketcher
         client_sketch = DDSketch()
         for score in score_dist.tolist():
             client_sketch.add(score)
         client_digest = TDigest()
         client_digest.batch_update(score_dist.numpy())
-        
+
         # merge client sketcher with decentral sketcher
         decentral_sketch.merge(client_sketch)
         digest = digest + client_digest
         avg_q += q
-        
-    sketch_q = decentral_sketch.get_quantile_value(np.ceil((n+1)*(1-alpha))/n)
-    decentral_q = digest.percentile(round(100*(np.ceil((n+1)*(1-alpha))/n)))
+
+    sketch_q = decentral_sketch.get_quantile_value(np.ceil((n + 1) * (1 - alpha)) / n)
+    decentral_q = digest.percentile(round(100 * (np.ceil((n + 1) * (1 - alpha)) / n)))
     avg_q /= len(client_index_map)
     # print(avg_q, decentral_q, sketch_q, np.ceil((n+1)*(1-alpha))/n)
-            
+
     return decentral_q
     # return avg_q
     # return sketch_q

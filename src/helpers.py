@@ -1,24 +1,26 @@
 from collections import defaultdict
 from pathlib import Path
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 import torch
 
+
 def get_client_map(dataset):
-    if dataset in ('mnist', 'svhn', 'cifar10', 'fashion'):
+    if dataset in ("mnist", "svhn", "cifar10", "fashion"):
         clients_class_map = {
-            'client_0': [0],
-            'client_1': [1],
-            'client_2': [2],
-            'client_3': [3],
-            'client_4': [4],
-            'client_5': [5],
-            'client_6': [6],
-            'client_7': [7],
-            'client_8': [8],
-            'client_9': [9],
+            "client_0": [0],
+            "client_1": [1],
+            "client_2": [2],
+            "client_3": [3],
+            "client_4": [4],
+            "client_5": [5],
+            "client_6": [6],
+            "client_7": [7],
+            "client_8": [8],
+            "client_9": [9],
         }
-    elif dataset == 'cifar100':
+    elif dataset == "cifar100":
         clients_class_map = {
             "client_0": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
             "client_1": [10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
@@ -31,63 +33,70 @@ def get_client_map(dataset):
             "client_8": [80, 81, 82, 83, 84, 85, 86, 87, 88, 89],
             "client_9": [90, 91, 92, 93, 94, 95, 96, 97, 98, 99],
         }
-    elif dataset in ('bloodmnist', 'tissuemnist'):
+    elif dataset in ("bloodmnist", "tissuemnist"):
         clients_class_map = {
-            'client_0': [0],
-            'client_1': [1],
-            'client_2': [2],
-            'client_3': [3],
-            'client_4': [4],
-            'client_5': [5],
-            'client_6': [6],
-            'client_7': [7],
+            "client_0": [0],
+            "client_1": [1],
+            "client_2": [2],
+            "client_3": [3],
+            "client_4": [4],
+            "client_5": [5],
+            "client_6": [6],
+            "client_7": [7],
         }
-    elif dataset == 'dermamnist':
+    elif dataset == "dermamnist":
         clients_class_map = {
-            'client_0': [0],
-            'client_1': [1],
-            'client_2': [2],
-            'client_3': [3],
-            'client_4': [4],
-            'client_5': [5],
-            'client_6': [6],
+            "client_0": [0],
+            "client_1": [1],
+            "client_2": [2],
+            "client_3": [3],
+            "client_4": [4],
+            "client_5": [5],
+            "client_6": [6],
         }
-    elif dataset == 'pathmnist':
+    elif dataset == "pathmnist":
         clients_class_map = {
-            'client_0': [0],
-            'client_1': [1],
-            'client_2': [2],
-            'client_3': [3],
-            'client_4': [4],
-            'client_5': [5],
-            'client_6': [6],
-            'client_7': [7],
-            'client_8': [8],
+            "client_0": [0],
+            "client_1": [1],
+            "client_2": [2],
+            "client_3": [3],
+            "client_4": [4],
+            "client_5": [5],
+            "client_6": [6],
+            "client_7": [7],
+            "client_8": [8],
         }
-    
+
     return clients_class_map
 
 
 def load_scores(experiment: Path = None, dataset=None) -> dict:
     try:
-        load = lambda p: torch.load(p, map_location=torch.device('cpu'))
-        stage = 'stage2' if 'tct' in experiment.name else 'stage1'
-        
-        val_scores = load(*(experiment / 'scores').glob(f'*_{stage}_val_scores.pth'))
-        val_targets = load(*(experiment / 'scores').glob(f'*_{stage}_val_targets.pth'))
-        test_scores = load(*(experiment / 'scores').glob(f'*_{stage}_test_scores.pth'))
-        test_targets = load(*(experiment / 'scores').glob(f'*_{stage}_test_targets.pth'))
-        return dict(val_scores=val_scores, val_targets=val_targets, test_scores=test_scores, test_targets=test_targets)
+        load = lambda p: torch.load(p, map_location=torch.device("cpu"))
+        stage = "stage2" if "tct" in experiment.name else "stage1"
+
+        val_scores = load(*(experiment / "scores").glob(f"*_{stage}_val_scores.pth"))
+        val_targets = load(*(experiment / "scores").glob(f"*_{stage}_val_targets.pth"))
+        test_scores = load(*(experiment / "scores").glob(f"*_{stage}_test_scores.pth"))
+        test_targets = load(
+            *(experiment / "scores").glob(f"*_{stage}_test_targets.pth")
+        )
+        return dict(
+            val_scores=val_scores,
+            val_targets=val_targets,
+            test_scores=test_scores,
+            test_targets=test_targets,
+        )
     except Exception as e:
         print(e)
         return None
 
 
 def get_new_trial(experiments, frac=0.5, fitzpatrick_df=None):
-    orig_val_scores = experiments['tct']['val_scores']
-    orig_val_targets = experiments['tct']['val_targets']
-    orig_test_scores = experiments['tct']['test_scores']
-    orig_test_targets = experiments['tct']['test_targets']
+    orig_val_scores = experiments["tct"]["val_scores"]
+    orig_val_targets = experiments["tct"]["val_targets"]
+    orig_test_scores = experiments["tct"]["test_scores"]
+    orig_test_targets = experiments["tct"]["test_targets"]
     orig_comb_scores = torch.concat([orig_val_scores, orig_test_scores])
     orig_comb_targets = torch.concat([orig_val_targets, orig_test_targets])
     assert orig_comb_scores.size(0) == orig_comb_targets.size(0)
@@ -98,19 +107,19 @@ def get_new_trial(experiments, frac=0.5, fitzpatrick_df=None):
     test_index = rand_index[k:]
     new_experiments = {}
     for exp, v in experiments.items():
-        val_scores = v['val_scores']
-        val_targets = v['val_targets']
-        test_scores = v['test_scores']
-        test_targets = v['test_targets']
+        val_scores = v["val_scores"]
+        val_targets = v["val_targets"]
+        test_scores = v["test_scores"]
+        test_targets = v["test_targets"]
         comb_scores = torch.concat([val_scores, test_scores])
         comb_targets = torch.concat([val_targets, test_targets])
         # assert (comb_targets == orig_comb_targets).all(), exp
         # assert comb_targets.sum() == orig_comb_targets.sum(), exp
         new_experiments[exp] = {
-            'val_scores': comb_scores[val_index],
-            'val_targets': comb_targets[val_index],
-            'test_scores': comb_scores[test_index],
-            'test_targets': comb_targets[test_index],
+            "val_scores": comb_scores[val_index],
+            "val_targets": comb_targets[val_index],
+            "test_scores": comb_scores[test_index],
+            "test_targets": comb_targets[test_index],
         }
     if fitzpatrick_df is not None:
         val_df = fitzpatrick_df.copy().loc[val_index]
@@ -118,7 +127,8 @@ def get_new_trial(experiments, frac=0.5, fitzpatrick_df=None):
         return dict(experiments=new_experiments, val_df=val_df, test_df=test_df)
     else:
         return dict(experiments=new_experiments, val_df=None, test_df=None)
-    
+
+
 def combine_trials(trials):
     metrics = set(list(trials.values())[0].keys())
     mean_metrics = {met: defaultdict(list) for met in metrics}

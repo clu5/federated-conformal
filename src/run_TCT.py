@@ -24,8 +24,7 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import datasets, models, transforms
 from tqdm import tqdm
 
-from conformal import (calibrate_lac, calibrate_lac, inference_lac,
-                       inference_lac)
+from conformal import calibrate_lac, inference_lac
 from skin_dataset import (TEST_TRANSFORM, TRAIN_TRANSFORM, SkinDataset,
                           get_weighted_sampler)
 from temperature import tune_temp
@@ -69,6 +68,8 @@ def main():
     parser.add_argument("--tag", default="", type=str)
     parser.add_argument("--use_three_partition_label", action="store_true")
     parser.add_argument("--use_squared_loss", action="store_true")
+    parser.add_argument("--use_fedprox", action="store_true")
+    parser.add_argument("--fedprox_mu", default=0.1, type=float)
     parser.add_argument(
         "--fitzpatrick_image_dir",
         default="../data/fitzpatrick17k/images",
@@ -110,6 +111,8 @@ def main():
     tag = args["tag"]
     use_three_partition_label = args["use_three_partition_label"]
     use_squared_loss = args["use_squared_loss"]
+    use_fedprox = args["use_fedprox"]
+    fedprox_mu = args["fedprox_mu"]
 
     dataset_name = args["dataset"]
 
@@ -266,7 +269,9 @@ def main():
         local_epochs_stage1 = 1
         num_rounds_stage2 = 0
         client_label_map = {"central_server": list(range(num_classes))}
-    elif num_rounds_stage2 == 0:
+    elif num_rounds_stage2 == 0 and use_fedprox:
+        experiment = "fedprox"
+    elif num_rounds_stage2 == 0 and not use_fedprox:
         experiment = "fedavg"
     else:
         experiment = "tct"
@@ -502,7 +507,9 @@ def main():
         ).cuda()
         client_models = [
             torch.nn.DataParallel(
-                make_model(architecture, in_channels, num_classes, pretrained=pretrained)
+                make_model(
+                    architecture, in_channels, num_classes, pretrained=pretrained
+                )
             ).cuda()
             for _ in range(num_clients)
         ]
@@ -552,6 +559,8 @@ def main():
                     opt[i],
                     train_loaders[i],
                     epoch=local_epochs_stage1,
+                    fedprox_mu=fedprox_mu,
+                    global_model=global_model if use_fedprox else None,
                 )
             loss /= num_clients
 
