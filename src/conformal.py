@@ -1,3 +1,4 @@
+from functools import partial
 import numpy as np
 import torch
 from ddsketch import DDSketch
@@ -6,6 +7,7 @@ from tdigest import TDigest
 
 def calibrate_lac(scores, targets, alpha=0.1, return_dist=False):
     assert scores.size(0) == targets.size(0)
+    assert targets.size(0)
     n = torch.tensor(targets.size(0))
     assert n
 
@@ -195,16 +197,13 @@ def get_coverage_size_over_alphas(
     decentral=False,
     client_index_map=None,
     precision=4,
+    quantile_method: str = 'tdigest',
 ):
     n = test_targets.shape[0]
-    # cal_scores = torch.cat([cal_scores, test_scores[n//2:]])
-    # cal_targets = torch.cat([cal_targets, test_targets[n//2:]])
-    # cal_scores = test_scores[n//2:]
-    # cal_targets = test_targets[n//2:]
-    # test_scores = test_scores[:n//2]
-    # test_targets = test_targets[:n//2]
-    # print(cal_scores)
     coverage_results, size_results = {}, {}
+    low_coverage, low_size = {}, {}
+    mid_coverage, mid_size = {}, {}
+    high_coverage, high_size = {}, {}
     for alpha in alphas:
         if method == "lac":
             if decentral and client_index_map is not None:
@@ -214,6 +213,7 @@ def get_coverage_size_over_alphas(
                     alpha=alpha,
                     method="lac",
                     client_index_map=client_index_map,
+                    quantile_method=quantile_method,
                 )
             else:
                 qhat = calibrate_lac(cal_scores, cal_targets, alpha=alpha)
@@ -224,8 +224,9 @@ def get_coverage_size_over_alphas(
                     cal_scores,
                     cal_targets,
                     alpha=alpha,
-                    method="lac",
+                    method="aps",
                     client_index_map=client_index_map,
+                    quantile_method=quantile_method,
                 )
             else:
                 qhat = calibrate_aps(cal_scores, cal_targets, alpha=alpha)
@@ -236,8 +237,10 @@ def get_coverage_size_over_alphas(
                     cal_scores,
                     cal_targets,
                     alpha=alpha,
-                    method="lac",
+                    method="raps",
                     client_index_map=client_index_map,
+                    k_reg=k_reg, lam_reg=lam_reg,
+                    quantile_method=quantile_method,
                 )
             else:
                 qhat = calibrate_raps(
@@ -260,11 +263,30 @@ def get_coverage_size_over_alphas(
             )
         else:
             raise ValueError()
+            
+        t = round(1-alpha, 2)
 
-        coverage_results[alpha] = get_coverage(psets, test_targets, precision=precision)
-        size_results[alpha] = get_size(psets)
+        coverage_results[t] = get_coverage(psets, test_targets, precision=precision)
+        size_results[t] = get_size(psets)
+        
+        s = psets.sum(1)
+        low_index = torch.nonzero((0 < s) & (s <= 5)).flatten()
+        mid_index = torch.nonzero((5 < s) & (s <= 10)).flatten()
+        high_index = torch.nonzero(10 < s).flatten()
+        t = round(1-alpha, 2)
+        low_coverage[t] = get_coverage(psets[low_index], test_targets[low_index])
+        mid_coverage[t] = get_coverage(psets[mid_index], test_targets[mid_index])
+        high_coverage[t] = get_coverage(psets[high_index], test_targets[high_index])
+        low_size[t] = get_size(psets[low_index])
+        mid_size[t] = get_size(psets[mid_index])
+        high_size[t] = get_size(psets[high_index])
 
-    return dict(coverage=coverage_results, size=size_results)
+    return dict(
+        coverage=coverage_results, size=size_results,
+        low_coverage=low_coverage, low_size=low_size,
+        mid_coverage=mid_coverage, mid_size=mid_size,
+        high_coverage=high_coverage, high_size=high_size,
+    )
 
 
 def get_distributed_quantile(
@@ -275,6 +297,7 @@ def get_distributed_quantile(
     k_reg=None,
     lam_reg=None,
     client_index_map: dict = None,
+    quantile_method: str = 'tdigest',
 ):
     # choose score function
     if method == "lac":
@@ -286,9 +309,15 @@ def get_distributed_quantile(
     else:
         raise ValueError(f"{method} score function not implemented")
 
-    decentral_sketch = DDSketch()
-    digest = TDigest()
-    avg_q = 0
+    if quantile_method == 'tdigest':
+        digest = TDigest()
+    elif quantile_method == 'ddsketch':
+        sketch = DDSketch()
+    elif quantile_method == 'mean':
+        mean_q = 0
+    else:
+        raise ValueError(f'{quantile_method} not supported')
+        
     n = 0
     for client, index in client_index_map.items():
         scores = cal_scores[index]
@@ -299,23 +328,27 @@ def get_distributed_quantile(
 
         q, score_dist = score_func(scores, targets, alpha=alpha, return_dist=True)
 
-        # add client scores to quantile sketcher
-        client_sketch = DDSketch()
-        for score in score_dist.tolist():
-            client_sketch.add(score)
-        client_digest = TDigest()
-        client_digest.batch_update(score_dist.numpy())
+        # add client scores and merge with global to estimate quantile
+        if quantile_method == 'tdigest':
+            client_digest = TDigest()
+            client_digest.batch_update(score_dist.numpy())
+            digest = digest + client_digest
+        elif quantile_method == 'ddsketch':
+            decentral_sketch = DDSketch()
+            client_sketch = DDSketch()
+            for score in score_dist.tolist():
+                client_sketch.add(score)
+            sketch.merge(client_sketch)
+        elif quantile_method == 'mean':
+            mean_q += q
+        
 
-        # merge client sketcher with decentral sketcher
-        decentral_sketch.merge(client_sketch)
-        digest = digest + client_digest
-        avg_q += q
+    t = np.ceil((n + 1) * (1 - alpha)) / n
+    if quantile_method == 'tdigest':
+        q_hat = digest.percentile(round(100*t))
+    elif quantile_method == 'ddsketch':
+        q_hat = sketch.get_quantile_value(t)
+    elif quantile_method == 'mean':
+        q_hat = mean_q / len(client_index_map)
 
-    sketch_q = decentral_sketch.get_quantile_value(np.ceil((n + 1) * (1 - alpha)) / n)
-    decentral_q = digest.percentile(round(100 * (np.ceil((n + 1) * (1 - alpha)) / n)))
-    avg_q /= len(client_index_map)
-    # print(avg_q, decentral_q, sketch_q, np.ceil((n+1)*(1-alpha))/n)
-
-    return decentral_q
-    # return avg_q
-    # return sketch_q
+    return q_hat

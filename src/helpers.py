@@ -92,7 +92,7 @@ def load_scores(experiment: Path = None, dataset=None) -> dict:
         return None
 
 
-def get_new_trial(experiments, frac=0.5, fitzpatrick_df=None):
+def get_new_trial(experiments, frac=0.1, fitzpatrick_df=None):
     orig_val_scores = experiments["tct"]["val_scores"]
     orig_val_targets = experiments["tct"]["val_targets"]
     orig_test_scores = experiments["tct"]["test_scores"]
