@@ -119,139 +119,112 @@ def main():
     if dataset_name == "mnist":
         in_channels = 1
         num_classes = 10
-        num_clients = 10
         client_label_map = {
-            "client_1": [0],
-            "client_2": [1],
-            "client_3": [2],
-            "client_4": [3],
-            "client_5": [4],
-            "client_6": [5],
-            "client_7": [6],
-            "client_8": [7],
-            "client_9": [8],
-            "client_10": [9],
+            "client_0": [0],
+            "client_1": [1],
+            "client_2": [2],
+            "client_3": [3],
+            "client_4": [4],
+            "client_5": [5],
+            "client_6": [6],
+            "client_7": [7],
+            "client_8": [8],
+            "client_9": [9],
         }
+        num_clients = len(client_label_map)
     elif dataset_name == "fashion":
         in_channels = 1
         num_classes = 10
-        num_clients = 10
         client_label_map = {
-            "client_1": [0],
-            "client_2": [1],
-            "client_3": [2],
-            "client_4": [3],
-            "client_5": [4],
-            "client_6": [5],
-            "client_7": [6],
-            "client_8": [7],
-            "client_9": [8],
-            "client_10": [9],
+            "client_0": [0],
+            "client_1": [1],
+            "client_2": [2],
+            "client_3": [3],
+            "client_4": [4],
+            "client_5": [5],
+            "client_6": [6],
+            "client_7": [7],
+            "client_8": [8],
+            "client_9": [9],
         }
+        num_clients = len(client_label_map)
     elif dataset_name == "cifar10":
         in_channels = 3
         num_classes = 10
-        num_clients = 10
         client_label_map = {
-            "client_1": [0],
-            "client_2": [1],
-            "client_3": [2],
-            "client_4": [3],
-            "client_5": [4],
-            "client_6": [5],
-            "client_7": [6],
-            "client_8": [7],
-            "client_9": [8],
-            "client_10": [9],
+            "client_0": [0, 1],
+            "client_1": [2, 3],
+            "client_2": [4, 5],
+            "client_3": [6, 7],
+            "client_4": [8, 9],
         }
+        num_clients = len(client_label_map)
     elif dataset_name == "cifar100":
         in_channels = 3
         num_classes = 100
-        num_clients = 10
         client_label_map = {
-            "client_1": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-            "client_2": [10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
-            "client_3": [20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
-            "client_4": [30, 31, 32, 33, 34, 35, 36, 37, 38, 39],
-            "client_5": [40, 41, 42, 43, 44, 45, 46, 47, 48, 49],
-            "client_6": [50, 51, 52, 53, 54, 55, 56, 57, 58, 59],
-            "client_7": [60, 61, 62, 63, 64, 65, 66, 67, 68, 69],
-            "client_8": [70, 71, 72, 73, 74, 75, 76, 77, 78, 79],
-            "client_9": [80, 81, 82, 83, 84, 85, 86, 87, 88, 89],
-            "client_10": [90, 91, 92, 93, 94, 95, 96, 97, 98, 99],
+            "client_0": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            "client_1": [10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+            "client_2": [20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
+            "client_3": [30, 31, 32, 33, 34, 35, 36, 37, 38, 39],
+            "client_4": [40, 41, 42, 43, 44, 45, 46, 47, 48, 49],
+            "client_5": [50, 51, 52, 53, 54, 55, 56, 57, 58, 59],
+            "client_6": [60, 61, 62, 63, 64, 65, 66, 67, 68, 69],
+            "client_7": [70, 71, 72, 73, 74, 75, 76, 77, 78, 79],
+            "client_8": [80, 81, 82, 83, 84, 85, 86, 87, 88, 89],
+            "client_9": [90, 91, 92, 93, 94, 95, 96, 97, 98, 99],
         }
+        num_clients = len(client_label_map)
     elif dataset_name == "svhn":
         in_channels = 3
         num_classes = 10
-        num_clients = 10
         client_label_map = {
-            "client_1": [0],
-            "client_2": [1],
-            "client_3": [2],
-            "client_4": [3],
-            "client_5": [4],
-            "client_6": [5],
-            "client_7": [6],
-            "client_8": [7],
-            "client_9": [8],
-            "client_10": [9],
+            "client_0": [0, 1],
+            "client_1": [2, 3],
+            "client_2": [4, 5],
+            "client_3": [6, 7],
+            "client_4": [8, 9],
         }
+        num_clients = len(client_label_map)
     elif dataset_name == "bloodmnist":
         in_channels = 3
         num_classes = 8
-        num_clients = 8
         client_label_map = {
-            "client_1": [0],
-            "client_2": [1],
-            "client_3": [2],
-            "client_4": [3],
-            "client_5": [4],
-            "client_6": [5],
-            "client_7": [6],
-            "client_8": [7],
+            "client_0": [0, 1],
+            "client_1": [2, 3],
+            "client_2": [4, 5],
+            "client_3": [6, 7],
         }
+        num_clients = len(client_label_map)
     elif dataset_name == "dermamnist":
         in_channels = 3
         num_classes = 7
-        num_clients = 7
         client_label_map = {
-            "client_1": [0],
-            "client_2": [1],
-            "client_3": [2],
-            "client_4": [3],
-            "client_5": [4],
-            "client_6": [5],
-            "client_7": [6],
+            "client_0": [0, 1],
+            "client_1": [2, 3],
+            "client_2": [4, 5],
+            "client_3": [6],
         }
+        num_clients = len(client_label_map)
     elif dataset_name == "pathmnist":
         in_channels = 3
         num_classes = 9
-        num_clients = 9
         client_label_map = {
-            "client_1": [0],
-            "client_2": [1],
-            "client_3": [2],
-            "client_4": [3],
-            "client_5": [4],
-            "client_6": [5],
-            "client_7": [6],
-            "client_8": [7],
-            "client_9": [8],
+            "client_0": [0, 1, 2],
+            "client_1": [3, 4, 5],
+            "client_2": [6, 7, 8],
         }
+        num_clients = len(client_label_map)
     elif dataset_name == "tissuemnist":
         in_channels = 1
         num_classes = 8
-        num_clients = 8
         client_label_map = {
-            "client_1": [0],
-            "client_2": [1],
-            "client_3": [2],
-            "client_4": [3],
-            "client_5": [4],
-            "client_6": [5],
-            "client_7": [6],
-            "client_8": [7],
+            "client_0": [0, 1],
+            "client_1": [2, 3],
+            "client_2": [4, 5],
+            "client_3": [6, 7],
         }
+        num_clients = len(client_label_map)
     elif dataset_name == "fitzpatrick":
         in_channels = 3
         num_classes = 114
@@ -283,6 +256,9 @@ def main():
 
     if pretrained:
         save_name = save_name + "_pretrained"
+
+    if use_squared_loss:
+        save_name = save_name + "_squared_loss"
 
     if tag:
         save_name = save_name + f"_{tag}"
