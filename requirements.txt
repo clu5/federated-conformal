@@ -8,3 +8,4 @@ tdigest
 torch
 torchvision
 tqdm
+tdigest

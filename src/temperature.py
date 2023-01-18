@@ -57,10 +57,9 @@ def tune_temp(
     return t
 
 
-def calc_bins(scores, targets):
+def calc_bins(scores, targets, num_bins=30):
     # Assign each prediction to a bin
-    num_bins = 10
-    bins = np.linspace(0.1, 1, num_bins)
+    bins = np.linspace(0.01, 1, num_bins)
     binned = np.digitize(scores, bins)
 
     # Save the accuracy, confidence and size of each bin
@@ -76,11 +75,10 @@ def calc_bins(scores, targets):
 
     return bins, binned, bin_accs, bin_confs, bin_sizes
 
-
-def get_calibration_metrics(scores, targets):
+def get_calibration_metrics(scores, targets, num_bins):
     ECE = 0
     MCE = 0
-    bins, _, bin_accs, bin_confs, bin_sizes = calc_bins(scores, targets)
+    bins, _, bin_accs, bin_confs, bin_sizes = calc_bins(scores, targets, num_bins=num_bins)
 
     for i in range(len(bins)):
         abs_conf_dif = abs(bin_accs[i] - bin_confs[i])
@@ -128,40 +126,38 @@ def temp_scale(logits, labels, plot=True):
     return temperature.detach()
 
 
-def draw_reliability_graph(
-    logits, targets, use_temp_scale=True, plot=False, title=None
-):
-
+def draw_reliability_graph(logits, targets, use_temp_scale=True, plot=False, title=None, num_bins=10, save=None, fontsize=16):
     if use_temp_scale:
         T = temp_scale(logits, targets, plot=plot)
         temp_scores = torch.softmax(logits / T, 1)
 
     scores = torch.softmax(logits, 1)
     targets = torch.nn.functional.one_hot(targets)
-
-    ECE, MCE = get_calibration_metrics(scores, targets)
+    
+        
+    ECE, MCE = get_calibration_metrics(scores, targets, num_bins=num_bins)
     bins, _, bin_accs, _, _ = calc_bins(scores, targets)
     if use_temp_scale:
-        temp_ECE, temp_MCE = get_calibration_metrics(temp_scores, targets)
+        temp_ECE, temp_MCE = get_calibration_metrics(temp_scores, targets, num_bins=num_bins)
         temp_bins, _, temp_bin_accs, _, _ = calc_bins(temp_scores, targets)
 
-    fig, ax = plt.subplots(ncols=2, figsize=(5 * (2 if use_temp_scale else 1), 4))
+    fig, ax = plt.subplots(ncols=2, figsize=(4 * (2 if use_temp_scale else 1), 4))
     if title is not None:
-        fig.suptitle(title, fontsize=24)
+        fig.suptitle(title, fontsize=24, x=0.53, y=0.97)
 
     # x/y limits
-    ax[0].set_xlim(0, 1.05)
+    ax[0].set_xlim(0, 1.02)
     ax[0].set_ylim(0, 1)
     if use_temp_scale:
-        ax[1].set_xlim(0, 1.05)
+        ax[1].set_xlim(0, 1.02)
         ax[1].set_ylim(0, 1)
 
     # x/y labels
-    ax[0].set_xlabel("Confidence")
-    ax[0].set_ylabel("Accuracy")
+    ax[0].set_xlabel('Confidence', fontsize=fontsize)
+    ax[0].set_ylabel('Accuracy', fontsize=fontsize)
     if use_temp_scale:
-        ax[1].set_xlabel("Confidence")
-        ax[1].set_ylabel("Accuracy")
+        ax[1].set_xlabel('Confidence', fontsize=fontsize)
+        ax[1].set_ylabel('Accuracy', fontsize=fontsize)
 
     # Create grid
     # ax.set_axisbelow(True)
@@ -169,13 +165,13 @@ def draw_reliability_graph(
 
     # Error bars
     ax[0].bar(
-        bins, bins, width=0.1, alpha=0.3, edgecolor="black", color="r", hatch="\\"
+        bins, bins, width=0.032, alpha=0.3, edgecolor="black", color="r", hatch="\\"
     )
     if use_temp_scale:
         ax[1].bar(
             temp_bins,
             temp_bins,
-            width=0.1,
+            width=0.032,
             alpha=0.3,
             edgecolor="black",
             color="r",
@@ -183,13 +179,11 @@ def draw_reliability_graph(
         )
 
     # Draw bars and identity line
-    ax[0].bar(bins, bin_accs, width=0.1, alpha=1, edgecolor="black", color="b")
-    ax[0].plot([0, 1], [0, 1], "--", color="gray", linewidth=2)
+    ax[0].bar(bins, bin_accs, width=0.032, alpha=1, edgecolor='black', color='C0')
+    ax[0].plot([0,1],[0,1], '--', color='gray', linewidth=2)
     if use_temp_scale:
-        ax[1].bar(
-            temp_bins, temp_bin_accs, width=0.1, alpha=1, edgecolor="black", color="b"
-        )
-        ax[1].plot([0, 1], [0, 1], "--", color="gray", linewidth=2)
+        ax[1].bar(temp_bins, temp_bin_accs, width=0.032, alpha=1, edgecolor='black', color='C0')
+        ax[1].plot([0,1],[0,1], '--', color='gray', linewidth=2)
 
     # Equally spaced axes
     ax[0].set_aspect("equal", adjustable="box")
@@ -197,26 +191,30 @@ def draw_reliability_graph(
         ax[1].set_aspect("equal", adjustable="box")
 
     # ECE and MCE legend
-    ECE_patch = mpatches.Patch(color="green", label="ECE = {:.2f}%".format(ECE * 100))
-    MCE_patch = mpatches.Patch(color="red", label="MCE = {:.2f}%".format(MCE * 100))
-    ax[0].legend(handles=[ECE_patch, MCE_patch])
+    # ECE_patch = mpatches.Patch(color='C1', label='ECE = {:.1f}%'.format(ECE*100),)
+    MCE_patch = mpatches.Patch(color='C2', label='MCE = {:.1f}%'.format(MCE*100),)
+    # ax[0].legend(handles=[ECE_patch, MCE_patch])
+    ax[0].text(0.40, 0.9, f'MCE = {MCE:.0%}', horizontalalignment='center', verticalalignment='center', fontsize=fontsize)
     if use_temp_scale:
-        temp_ECE_patch = mpatches.Patch(
-            color="green", label="ECE = {:.2f}%".format(temp_ECE * 100)
-        )
-        temp_MCE_patch = mpatches.Patch(
-            color="red", label="MCE = {:.2f}%".format(temp_MCE * 100)
-        )
-        ax[1].legend(handles=[temp_ECE_patch, temp_MCE_patch])
-
-    ax[0].set_title("no temperature", fontsize=16)
+        # temp_ECE_patch = mpatches.Patch(color='C1', label='ECE = {:.1f}%'.format(temp_ECE*100), )
+        temp_MCE_patch = mpatches.Patch(color='C2', label='MCE = {:.1f}%'.format(temp_MCE*100), )
+        # ax[1].legend(handles=[temp_ECE_patch, temp_MCE_patch])
+        ax[1].text(0.40, 0.9, f'MCE = {temp_MCE:.0%}', horizontalalignment='center', verticalalignment='center', fontsize=fontsize)
+        
+    ax[0].set_title('Before scaling', fontsize=fontsize)
     if use_temp_scale:
-        ax[1].set_title("temperature", fontsize=16)
+        ax[1].set_title('After scaling', fontsize=fontsize)
 
-    fig.tight_layout()
+    ax[0].xaxis.set_tick_params(labelsize=fontsize-2, pad=8)
+    ax[0].yaxis.set_tick_params(labelsize=fontsize-2, pad=8)
+    ax[1].xaxis.set_tick_params(labelsize=fontsize-2, pad=8)
+    ax[1].yaxis.set_tick_params(labelsize=fontsize-2, pad=8)
+    
+    plt.tight_layout()
+    
+    if save is not None:
+        plt.savefig(save, bbox_inches='tight')
     plt.show()
-
-    # plt.savefig('calibrated_network.png', bbox_inches='tight')
 
 
 def client_temp_scale(
