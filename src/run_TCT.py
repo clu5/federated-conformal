@@ -66,7 +66,8 @@ def main():
     parser.add_argument("--start_from_stage1", action="store_true")
     parser.add_argument("--override", action="store_true")
     parser.add_argument("--tag", default="", type=str)
-    parser.add_argument("--use_three_partition_label", action="store_true")
+    parser.add_argument("--use_three_label_partition", action="store_true")
+    parser.add_argument("--use_nine_label_partition", action="store_true")
     parser.add_argument("--use_squared_loss", action="store_true")
     parser.add_argument("--use_fedprox", action="store_true")
     parser.add_argument("--fedprox_mu", default=0.1, type=float)
@@ -109,7 +110,8 @@ def main():
     num_random_grad = args["num_random_grad"]
     override = args["override"]
     tag = args["tag"]
-    use_three_partition_label = args["use_three_partition_label"]
+    use_three_label_partition = args["use_three_label_partition"]
+    use_nine_label_partition = args["use_nine_label_partition"]
     use_squared_loss = args["use_squared_loss"]
     use_fedprox = args["use_fedprox"]
     fedprox_mu = args["fedprox_mu"]
@@ -163,16 +165,26 @@ def main():
         in_channels = 3
         num_classes = 100
         client_label_map = {
-            "client_0": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-            "client_1": [10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
-            "client_2": [20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
-            "client_3": [30, 31, 32, 33, 34, 35, 36, 37, 38, 39],
-            "client_4": [40, 41, 42, 43, 44, 45, 46, 47, 48, 49],
-            "client_5": [50, 51, 52, 53, 54, 55, 56, 57, 58, 59],
-            "client_6": [60, 61, 62, 63, 64, 65, 66, 67, 68, 69],
-            "client_7": [70, 71, 72, 73, 74, 75, 76, 77, 78, 79],
-            "client_8": [80, 81, 82, 83, 84, 85, 86, 87, 88, 89],
-            "client_9": [90, 91, 92, 93, 94, 95, 96, 97, 98, 99],
+            "client_0": [0, 1, 2, 3, 4],
+            "client_1": [5, 6, 7, 8, 9],
+            "client_2": [10, 11, 12, 13, 14],
+            "client_3": [15, 16, 17, 18, 19],
+            "client_4": [20, 21, 22, 23, 24],
+            "client_5": [25, 26, 27, 28, 29],
+            "client_6": [30, 31, 32, 33, 34],
+            "client_7": [35, 36, 37, 38, 39],
+            "client_8": [40, 41, 42, 43, 44],
+            "client_9": [45, 46, 47, 48, 49],
+            "client_10": [50, 51, 52, 53, 54],
+            "client_11": [55, 56, 57, 58, 59],
+            "client_12": [60, 61, 62, 63, 64],
+            "client_13": [65, 66, 67, 68, 69],
+            "client_14": [70, 71, 72, 73, 74],
+            "client_15": [75, 76, 77, 78, 79],
+            "client_16": [80, 81, 82, 83, 84],
+            "client_17": [85, 86, 87, 88, 89],
+            "client_18": [90, 91, 92, 93, 94],
+            "client_19": [95, 96, 97, 98, 99],
         }
         num_clients = len(client_label_map)
     elif dataset_name == "svhn":
@@ -202,8 +214,7 @@ def main():
         client_label_map = {
             "client_0": [0, 1],
             "client_1": [2, 3],
-            "client_2": [4, 5],
-            "client_3": [6],
+            "client_2": [4, 5, 6],
         }
         num_clients = len(client_label_map)
     elif dataset_name == "pathmnist":
@@ -229,8 +240,10 @@ def main():
         in_channels = 3
         num_classes = 114
         client_label_map = None
-        if use_three_partition_label:
+        if use_three_label_partition:
             num_clients = 3
+        elif use_nine_label_partition:
+            num_clients = 9
         else:
             num_clients = 6
     else:
@@ -264,10 +277,12 @@ def main():
         save_name = save_name + f"_{tag}"
 
     if dataset_name == "fitzpatrick":
-        if use_three_partition_label:
-            save_name = save_name + f"_three_label_partition"
+        if use_three_label_partition:
+            save_name = save_name + "_three_label_partition"
+        elif use_nine_label_partition:
+            save_name = save_name + "_nine_label_partition"
         else:
-            save_name = save_name + f"_skin_type_partition"
+            save_name = save_name + "_skin_type_partition"
 
     # Make directory to write outputs
     save_dir = Path(args["save_dir"]) / save_name
@@ -310,8 +325,10 @@ def main():
 
     if dataset_name == "fitzpatrick":
         df = pd.read_csv(fitzpatrick_csv)
-        if use_three_partition_label:
+        if use_three_label_partition:
             skin_labels = sorted(df.three_partition_label.unique())
+        elif use_nine_label_partition:
+            skin_labels = sorted(df.nine_partition_label.unique())
         else:
             skin_types = sorted(
                 # df.aggregated_fitzpatrick_scale.unique()
@@ -319,7 +336,9 @@ def main():
             )
         if central:
             assert 1 == num_clients
-        elif use_three_partition_label:
+        elif use_three_label_partition:
+            assert len(skin_labels) == num_clients
+        elif use_nine_label_partition:
             assert len(skin_labels) == num_clients
         else:
             assert len(skin_types) == num_clients
@@ -334,10 +353,17 @@ def main():
         else:
             if central:
                 train_partition = {"central": df.query("split == 'train'")}
-            elif use_three_partition_label:
+            elif use_three_label_partition:
                 train_partition = {
                     str(sl): df.query(
                         "three_partition_label == @sl and split == 'train'"
+                    )
+                    for sl in skin_labels
+                }
+            elif use_nine_label_partition:
+                train_partition = {
+                    str(sl): df.query(
+                        "nine_partition_label == @sl and split == 'train'"
                     )
                     for sl in skin_labels
                 }
@@ -446,9 +472,10 @@ def main():
         else:
             val_split: float = 0.1
             num_val = round(val_split * len(test_dataset))
-            rand_index = torch.randperm(len(test_dataset))
-            val_index = rand_index[:num_val]
-            test_index = rand_index[num_val:][:num_test_samples]
+            # index = torch.randperm(len(test_dataset))
+            index = torch.arange(len(test_dataset))
+            val_index = index[:num_val]
+            test_index = index[num_val:][:num_test_samples]
             val_subsample = Subset(test_dataset, val_index.tolist())
             test_subsample = Subset(test_dataset, test_index.tolist())
 
@@ -705,10 +732,17 @@ def main():
                     ]
                     for i in range(num_clients)
                 }
-            elif use_three_partition_label:
+            elif use_three_label_partition:
                 train_partition = {
                     str(sl): df.query(
                         "three_partition_label == @sl and split == 'train'"
+                    )
+                    for sl in skin_labels
+                }
+            elif use_nine_label_partition:
+                train_partition = {
+                    str(sl): df.query(
+                        "nine_partition_label == @sl and split == 'train'"
                     )
                     for sl in skin_labels
                 }
