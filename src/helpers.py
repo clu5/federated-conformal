@@ -7,7 +7,7 @@ import torch
 
 
 def get_client_map(dataset):
-    if dataset in ("mnist", "svhn", "cifar10", "fashion"):
+    if dataset in ("mnist", "fashion"):
         clients_class_map = {
             "client_0": [0],
             "client_1": [1],
@@ -21,50 +21,66 @@ def get_client_map(dataset):
             "client_9": [9],
         }
     elif dataset == "cifar100":
+        client_label_map = {
+            "client_0": [0, 1, 2, 3, 4],
+            "client_1": [5, 6, 7, 8, 9],
+            "client_2": [10, 11, 12, 13, 14],
+            "client_3": [15, 16, 17, 18, 19],
+            "client_4": [20, 21, 22, 23, 24],
+            "client_5": [25, 26, 27, 28, 29],
+            "client_6": [30, 31, 32, 33, 34],
+            "client_7": [35, 36, 37, 38, 39],
+            "client_8": [40, 41, 42, 43, 44],
+            "client_9": [45, 46, 47, 48, 49],
+            "client_10": [50, 51, 52, 53, 54],
+            "client_11": [55, 56, 57, 58, 59],
+            "client_12": [60, 61, 62, 63, 64],
+            "client_13": [65, 66, 67, 68, 69],
+            "client_14": [70, 71, 72, 73, 74],
+            "client_15": [75, 76, 77, 78, 79],
+            "client_16": [80, 81, 82, 83, 84],
+            "client_17": [85, 86, 87, 88, 89],
+            "client_18": [90, 91, 92, 93, 94],
+            "client_19": [95, 96, 97, 98, 99],
+        }
+        # clients_class_map = {
+        #     "client_0": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+        #     "client_1": [10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+        #     "client_2": [20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
+        #     "client_3": [30, 31, 32, 33, 34, 35, 36, 37, 38, 39],
+        #     "client_4": [40, 41, 42, 43, 44, 45, 46, 47, 48, 49],
+        #     "client_5": [50, 51, 52, 53, 54, 55, 56, 57, 58, 59],
+        #     "client_6": [60, 61, 62, 63, 64, 65, 66, 67, 68, 69],
+        #     "client_7": [70, 71, 72, 73, 74, 75, 76, 77, 78, 79],
+        #     "client_8": [80, 81, 82, 83, 84, 85, 86, 87, 88, 89],
+        #     "client_9": [90, 91, 92, 93, 94, 95, 96, 97, 98, 99],
+        # }
+    elif dataset in ("cifar10", "svhn"):
         clients_class_map = {
-            "client_0": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-            "client_1": [10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
-            "client_2": [20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
-            "client_3": [30, 31, 32, 33, 34, 35, 36, 37, 38, 39],
-            "client_4": [40, 41, 42, 43, 44, 45, 46, 47, 48, 49],
-            "client_5": [50, 51, 52, 53, 54, 55, 56, 57, 58, 59],
-            "client_6": [60, 61, 62, 63, 64, 65, 66, 67, 68, 69],
-            "client_7": [70, 71, 72, 73, 74, 75, 76, 77, 78, 79],
-            "client_8": [80, 81, 82, 83, 84, 85, 86, 87, 88, 89],
-            "client_9": [90, 91, 92, 93, 94, 95, 96, 97, 98, 99],
+            "client_0": [0, 1],
+            "client_1": [2, 3],
+            "client_2": [4, 5],
+            "client_3": [6, 7],
+            "client_4": [8, 9],
         }
     elif dataset in ("bloodmnist", "tissuemnist"):
         clients_class_map = {
-            "client_0": [0],
-            "client_1": [1],
-            "client_2": [2],
-            "client_3": [3],
-            "client_4": [4],
-            "client_5": [5],
-            "client_6": [6],
-            "client_7": [7],
+            "client_0": [0, 1],
+            "client_1": [2, 3],
+            "client_2": [4, 5],
+            "client_3": [6, 7],
         }
     elif dataset == "dermamnist":
         clients_class_map = {
-            "client_0": [0],
-            "client_1": [1],
-            "client_2": [2],
-            "client_3": [3],
-            "client_4": [4],
-            "client_5": [5],
-            "client_6": [6],
+            "client_0": [0, 1],
+            "client_1": [2, 3],
+            "client_2": [4, 5, 6],
         }
     elif dataset == "pathmnist":
         clients_class_map = {
-            "client_0": [0],
-            "client_1": [1],
-            "client_2": [2],
-            "client_3": [3],
-            "client_4": [4],
-            "client_5": [5],
-            "client_6": [6],
-            "client_7": [7],
-            "client_8": [8],
+            "client_0": [0, 1, 2],
+            "client_1": [3, 4, 5],
+            "client_2": [6, 7, 8],
         }
 
     return clients_class_map
@@ -92,7 +108,7 @@ def load_scores(experiment: Path = None, dataset=None) -> dict:
         return None
 
 
-def get_new_trial(experiments, frac=0.1, fitzpatrick_df=None):
+def get_new_trial(experiments, frac=0.5, fitzpatrick_df=None):
     orig_val_scores = experiments["tct"]["val_scores"]
     orig_val_targets = experiments["tct"]["val_targets"]
     orig_test_scores = experiments["tct"]["test_scores"]
@@ -113,8 +129,8 @@ def get_new_trial(experiments, frac=0.1, fitzpatrick_df=None):
         test_targets = v["test_targets"]
         comb_scores = torch.concat([val_scores, test_scores])
         comb_targets = torch.concat([val_targets, test_targets])
-        # assert (comb_targets == orig_comb_targets).all(), exp
-        # assert comb_targets.sum() == orig_comb_targets.sum(), exp
+        assert (comb_targets == orig_comb_targets).all(), exp
+        assert comb_targets.sum() == orig_comb_targets.sum(), exp
         new_experiments[exp] = {
             "val_scores": comb_scores[val_index],
             "val_targets": comb_targets[val_index],

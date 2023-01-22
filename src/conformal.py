@@ -123,8 +123,8 @@ def inference_raps(
         [torch.zeros(k_reg), torch.tensor([lam_reg]).repeat(num_classes - k_reg)]
     ).unsqueeze(0)
 
-    scores = torch.tensor(scores)
-    qhat = torch.tensor(qhat)
+    # scores = torch.tensor(scores)
+    # qhat = torch.tensor(qhat)
     sorted_index = scores.argsort(1, descending=True)
     sorted_scores = torch.take_along_dim(scores, sorted_index, dim=1)
     reg_sorted_scores = sorted_scores + reg
@@ -201,9 +201,11 @@ def get_coverage_size_over_alphas(
 ):
     n = test_targets.shape[0]
     coverage_results, size_results = {}, {}
-    low_coverage, low_size = {}, {}
-    mid_coverage, mid_size = {}, {}
-    high_coverage, high_size = {}, {}
+    q1_coverage, q1_size = {}, {}
+    q2_coverage, q2_size = {}, {}
+    q3_coverage, q3_size = {}, {}
+    q4_coverage, q4_size = {}, {}
+    
     for alpha in alphas:
         if method == "lac":
             if decentral and client_index_map is not None:
@@ -269,23 +271,31 @@ def get_coverage_size_over_alphas(
         coverage_results[t] = get_coverage(psets, test_targets, precision=precision)
         size_results[t] = get_size(psets)
         
-        s = psets.sum(1)
-        low_index = torch.nonzero((0 < s) & (s <= 5)).flatten()
-        mid_index = torch.nonzero((5 < s) & (s <= 10)).flatten()
-        high_index = torch.nonzero(10 < s).flatten()
+        s = psets.sum(1).float()
+        q1 = torch.quantile(s, 0.25, interpolation='higher')
+        q2 = torch.quantile(s, 0.5, interpolation='higher')
+        q3 = torch.quantile(s, 0.75, interpolation='higher')
+        # m = torch.median(s)
+        q1_index = torch.nonzero(s <= q1).flatten()
+        q2_index = torch.nonzero((q1 < s) & (s <= q2)).flatten()
+        q3_index = torch.nonzero((q2 < s) & (s <= q3)).flatten()
+        q4_index = torch.nonzero(q3 < s).flatten()
         t = round(1-alpha, 2)
-        low_coverage[t] = get_coverage(psets[low_index], test_targets[low_index])
-        mid_coverage[t] = get_coverage(psets[mid_index], test_targets[mid_index])
-        high_coverage[t] = get_coverage(psets[high_index], test_targets[high_index])
-        low_size[t] = get_size(psets[low_index])
-        mid_size[t] = get_size(psets[mid_index])
-        high_size[t] = get_size(psets[high_index])
+        q1_coverage[t] = get_coverage(psets[q1_index], test_targets[q1_index])
+        q2_coverage[t] = get_coverage(psets[q2_index], test_targets[q2_index])
+        q3_coverage[t] = get_coverage(psets[q3_index], test_targets[q3_index])
+        q4_coverage[t] = get_coverage(psets[q4_index], test_targets[q4_index])
+        q1_size[t] = get_size(psets[q1_index])
+        q2_size[t] = get_size(psets[q2_index])
+        q3_size[t] = get_size(psets[q3_index])
+        q4_size[t] = get_size(psets[q4_index])
 
     return dict(
         coverage=coverage_results, size=size_results,
-        low_coverage=low_coverage, low_size=low_size,
-        mid_coverage=mid_coverage, mid_size=mid_size,
-        high_coverage=high_coverage, high_size=high_size,
+        q1_coverage=q1_coverage, q1_size=q1_size,
+        q2_coverage=q2_coverage, q2_size=q2_size,
+        q3_coverage=q3_coverage, q3_size=q3_size,
+        q4_coverage=q4_coverage, q4_size=q4_size,
     )
 
 
@@ -318,11 +328,20 @@ def get_distributed_quantile(
     else:
         raise ValueError(f'{quantile_method} not supported')
         
-    n = 0
-    for client, index in client_index_map.items():
+    # N = 0
+    # lambdas = {}
+    # for k, (client, index) in enumerate(client_index_map.items()):
+    #     scores = cal_scores[index]
+    #     targets = cal_targets[index]
+    #     n = targets.shape[0]
+    #     N += n
+    #     lambdas[k] = n + 1
+        
+    # assert np.allclose(sum(lambdas.values()), 10), sum(lambdas.values())
+        
+    for k, (client, index) in enumerate(client_index_map.items()):
         scores = cal_scores[index]
         targets = cal_targets[index]
-        n += targets.shape[0]
 
         assert len(scores), len(targets)
 
@@ -332,18 +351,21 @@ def get_distributed_quantile(
         if quantile_method == 'tdigest':
             client_digest = TDigest()
             client_digest.batch_update(score_dist.numpy())
+            # client_digest.batch_update(score_dist.numpy(), w=lambdas[k])
             digest = digest + client_digest
         elif quantile_method == 'ddsketch':
             decentral_sketch = DDSketch()
             client_sketch = DDSketch()
             for score in score_dist.tolist():
                 client_sketch.add(score)
+                # client_sketch.add(score, weight=lambdas[k])
             sketch.merge(client_sketch)
         elif quantile_method == 'mean':
             mean_q += q
-        
 
-    t = np.ceil((n + 1) * (1 - alpha)) / n
+    N = cal_scores.shape[0]
+    K = len(client_index_map)
+    t = np.ceil((N + K) * (1 - alpha)) / N
     if quantile_method == 'tdigest':
         q_hat = digest.percentile(round(100*t))
     elif quantile_method == 'ddsketch':
