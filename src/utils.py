@@ -62,7 +62,7 @@ def get_datasets(
             transforms.ToTensor(),
             transforms.Normalize((0.4377, 0.4438, 0.4728), (0.1980, 0.2010, 0.1970)),
         ]
-    elif dataset_name == "cifar10":
+    elif dataset_name in ["cifar10", "cifar10-2", "cifar10-3"]:
         construct_dataset = datasets.CIFAR10
         data_augmentation = [
             transforms.RandomCrop(32, padding=4),

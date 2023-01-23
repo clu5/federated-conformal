@@ -60,7 +60,7 @@ def main():
     parser.add_argument("--central", action="store_true")
     parser.add_argument("--momentum", default=0.9, type=float)
     parser.add_argument("--use_data_augmentation", action="store_true")
-    parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrick_v4.csv", type=str)
+    parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrick_v5.csv", type=str)
     parser.add_argument("--pretrained", action="store_true")
     parser.add_argument("--num_random_grad", default=100000, type=int)
     parser.add_argument("--start_from_stage1", action="store_true")
@@ -71,6 +71,7 @@ def main():
     parser.add_argument("--use_squared_loss", action="store_true")
     parser.add_argument("--use_fedprox", action="store_true")
     parser.add_argument("--fedprox_mu", default=0.1, type=float)
+    parser.add_argument("--inference_only", action="store_true")
     parser.add_argument(
         "--fitzpatrick_image_dir",
         default="../data/fitzpatrick17k/images",
@@ -115,6 +116,7 @@ def main():
     use_squared_loss = args["use_squared_loss"]
     use_fedprox = args["use_fedprox"]
     fedprox_mu = args["fedprox_mu"]
+    inference_only = args["inference_only"]
 
     dataset_name = args["dataset"]
 
@@ -159,6 +161,28 @@ def main():
             "client_2": [4, 5],
             "client_3": [6, 7],
             "client_4": [8, 9],
+        }
+        num_clients = len(client_label_map)
+    elif dataset_name == "cifar10-2":
+        in_channels = 3
+        num_classes = 10
+        client_label_map = {
+            "client_0": [0, 1, 2],
+            "client_1": [2, 3, 4],
+            "client_2": [4, 5, 6],
+            "client_3": [6, 7, 8],
+            "client_4": [8, 9, 0],
+        }
+        num_clients = len(client_label_map)
+    elif dataset_name == "cifar10-3":
+        in_channels = 3
+        num_classes = 10
+        client_label_map = {
+            "client_0": [0, 1, 2, 3],
+            "client_1": [2, 3, 4, 5],
+            "client_2": [4, 5, 6, 7],
+            "client_3": [6, 7, 8, 9],
+            "client_4": [8, 9, 0, 1],
         }
         num_clients = len(client_label_map)
     elif dataset_name == "cifar100":
@@ -245,7 +269,8 @@ def main():
         elif use_nine_label_partition:
             num_clients = 9
         else:
-            num_clients = 6
+            # num_clients = 6
+            num_clients = 11
     else:
         raise ValueError(f'dataset "{dataset_name}" not supported')
 
@@ -517,7 +542,7 @@ def main():
             for _ in range(num_clients)
         ]
 
-        if start_from_stage1:
+        if start_from_stage1 or inference_only:
             checkpoint = max(
                 checkpoint_dir.glob(f"{save_name}_stage1_model_*.pth"),
                 key=lambda x: int(x.stem.split("_")[-1]),
@@ -542,6 +567,35 @@ def main():
         logger.info(f"{len(client_models)=}")
         logger.info(f"{len(train_loaders)=}")
         logger.info(f"{opt[0]=}")
+
+        if inference_only:
+            val_loss, val_acc, val_scores, val_targets = evaluate_model(
+                global_model,
+                val_loader,
+                num_batches=len(val_loader),
+                return_logits=True,
+            )
+            test_loss, test_acc, test_scores, test_targets = evaluate_model(
+                global_model,
+                test_loader,
+                num_batches=len(test_loader),
+                return_logits=True,
+            )
+            logger.info(
+                f"global model -- {val_loss=:.3f} -- {val_acc=:.3f} -- {test_loss=:.3f} -- {test_acc=:.3f}"
+            )
+
+            torch.save(val_scores, score_dir / f"{save_name}_stage1_val_scores.pth")
+            torch.save(
+                val_targets, score_dir / f"{save_name}_stage1_val_targets.pth"
+            )
+            torch.save(
+                test_scores, score_dir / f"{save_name}_stage1_test_scores.pth"
+            )
+            torch.save(
+                test_targets, score_dir / f"{save_name}_stage1_test_targets.pth"
+            )
+            exit()
 
         stage1_loss = collections.defaultdict(list)
         stage1_accuracy = collections.defaultdict(list)
