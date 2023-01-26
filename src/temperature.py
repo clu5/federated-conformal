@@ -238,12 +238,20 @@ def client_temp_scale(
             for part in sorted(test_df[partition].unique())
         }
     else:
+        # val_index_map = {
+        #     k: sum(experiments["tct"]["val_targets"] == k for k in v).bool()
+        #     for k, v in clients_class_map.items()
+        # }
+        # test_index_map = {
+        #     k: sum(experiments["tct"]["test_targets"] == k for k in v).bool()
+        #     for k, v in clients_class_map.items()
+        # }
         val_index_map = {
-            k: sum(experiments["tct"]["val_targets"] == k for k in v).bool()
+            k: sum(experiments["fedavg"]["val_targets"] == k for k in v).bool()
             for k, v in clients_class_map.items()
         }
         test_index_map = {
-            k: sum(experiments["tct"]["test_targets"] == k for k in v).bool()
+            k: sum(experiments["fedavg"]["test_targets"] == k for k in v).bool()
             for k, v in clients_class_map.items()
         }
 

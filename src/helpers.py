@@ -21,7 +21,7 @@ def get_client_map(dataset):
             "client_9": [9],
         }
     elif dataset == "cifar100":
-        client_label_map = {
+        clients_class_map = {
             "client_0": [0, 1, 2, 3, 4],
             "client_1": [5, 6, 7, 8, 9],
             "client_2": [10, 11, 12, 13, 14],
@@ -62,6 +62,23 @@ def get_client_map(dataset):
             "client_2": [4, 5],
             "client_3": [6, 7],
             "client_4": [8, 9],
+        }
+    elif dataset == "cifar10-2":
+        client_class_map = {
+            "client_0": [0, 1, 2],
+            "client_1": [2, 3, 4],
+            "client_2": [4, 5, 6],
+            "client_3": [6, 7, 8],
+            "client_4": [8, 9, 0],
+        }
+        num_clients = len(client_label_map)
+    elif dataset == "cifar10-3":
+        client_class_map = {
+            "client_0": [0, 1, 2, 3],
+            "client_1": [2, 3, 4, 5],
+            "client_2": [4, 5, 6, 7],
+            "client_3": [6, 7, 8, 9],
+            "client_4": [8, 9, 0, 1],
         }
     elif dataset in ("bloodmnist", "tissuemnist"):
         clients_class_map = {
@@ -109,10 +126,14 @@ def load_scores(experiment: Path = None, dataset=None) -> dict:
 
 
 def get_new_trial(experiments, frac=0.5, fitzpatrick_df=None):
-    orig_val_scores = experiments["tct"]["val_scores"]
-    orig_val_targets = experiments["tct"]["val_targets"]
-    orig_test_scores = experiments["tct"]["test_scores"]
-    orig_test_targets = experiments["tct"]["test_targets"]
+    # orig_val_scores = experiments["tct"]["val_scores"]
+    # orig_val_targets = experiments["tct"]["val_targets"]
+    # orig_test_scores = experiments["tct"]["test_scores"]
+    # orig_test_targets = experiments["tct"]["test_targets"]
+    orig_val_scores = experiments["fedavg"]["val_scores"]
+    orig_val_targets = experiments["fedavg"]["val_targets"]
+    orig_test_scores = experiments["fedavg"]["test_scores"]
+    orig_test_targets = experiments["fedavg"]["test_targets"]
     orig_comb_scores = torch.concat([orig_val_scores, orig_test_scores])
     orig_comb_targets = torch.concat([orig_val_targets, orig_test_targets])
     assert orig_comb_scores.size(0) == orig_comb_targets.size(0)
@@ -121,8 +142,10 @@ def get_new_trial(experiments, frac=0.5, fitzpatrick_df=None):
     k = int(frac * n)
     val_index = rand_index[:k]
     test_index = rand_index[k:]
+    assert val_index.shape[0] + test_index.shape[0] == n
     new_experiments = {}
     for exp, v in experiments.items():
+        # print(exp)
         val_scores = v["val_scores"]
         val_targets = v["val_targets"]
         test_scores = v["test_scores"]
