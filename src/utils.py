@@ -221,10 +221,11 @@ def get_datasets(
 
 def partition_dataset(
     dataset: Dataset,
-    client_label_map: Dict[str, List[int]],
-    samples_per_client: int,
+    client_label_map: Dict[str, List[int]] = None,
+    samples_per_client: int = None,
     use_iid_partition: bool = False,
     seed: int = 123,
+    dirichlet_beta: float = 0.0,
 ) -> Dict[str, Dataset]:
     client_datasets: Dict[str, Dataset] = {}
 
@@ -240,15 +241,42 @@ def partition_dataset(
                 dataset,
                 perm[i * num_samples : (i + 1) * num_samples][:samples_per_client],
             )
-    else:
+    elif dirichlet_beta > 0:
         if hasattr(dataset, "targets"):
             targets = torch.tensor(dataset.targets)
         elif hasattr(dataset, "labels"):
             targets = torch.tensor(dataset.labels)
         else:
             raise ValueError("Cannot find labels")
-        labels = targets.unique()
-        bool_targets = torch.stack([targets == y for y in labels])
+        classes = targets.unique()
+        bool_targets = torch.stack([targets == y for y in classes])
+        class_counts = bool_targets.sum(1)
+        class_prior = class_counts / len(targets)
+        num_clients = len(client_label_map)
+        client_class_weights = torch.distributions.dirichlet.Dirichlet(
+            torch.tensor(dirichlet_beta * class_prior)
+        ).sample((num_clients,))
+
+        for i, client in enumerate(client_label_map.keys()):
+            client_samples = []
+            for j, weight in enumerate(client_class_weights[i]):
+                num_to_sample = round((weight * class_counts[j]).item())
+                class_samples = np.random.choice(
+                    bool_targets[j].nonzero().flatten(), size=num_to_sample
+                )
+                client_samples.extend(class_samples)
+
+            client_datasets[client] = Subset(dataset, client_samples)
+
+    elif client_label_map is not None:
+        if hasattr(dataset, "targets"):
+            targets = torch.tensor(dataset.targets)
+        elif hasattr(dataset, "labels"):
+            targets = torch.tensor(dataset.labels)
+        else:
+            raise ValueError("Cannot find labels")
+        classes = targets.unique()
+        bool_targets = torch.stack([targets == y for y in classes])
 
         for client, labels in client_label_map.items():
             index = torch.where(bool_targets[labels].sum(0))[0]
@@ -258,6 +286,8 @@ def partition_dataset(
                 subsample.size(0) != 0
             ), f"Dataset error for client {client} with label {labels}"
             client_datasets[client] = Subset(dataset, subsample)
+    else:
+        raise ValueError()
 
     return client_datasets
 
@@ -540,20 +570,17 @@ def average_models(
     global_model: torch.nn.Module, client_models: List[torch.nn.Module]
 ) -> None:
     """Average models across all clients."""
-    global_dict = global_model.module.state_dict()
+    global_dict = global_model.state_dict()
     for k in global_dict.keys():
         global_dict[k] = (
             torch.stack(
-                [
-                    client_models[i].module.state_dict()[k]
-                    for i in range(len(client_models))
-                ],
+                [client_models[i].state_dict()[k] for i in range(len(client_models))],
                 0,
             )
             .float()
             .mean(0)
         )
-    global_model.module.load_state_dict(global_dict)
+    global_model.load_state_dict(global_dict)
 
 
 def evaluate_model(

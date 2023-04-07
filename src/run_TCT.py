@@ -77,6 +77,7 @@ def main():
         default="../data/fitzpatrick17k/images",
         type=str,
     )
+    parser.add_argument("--dirichlet_beta", default=0, type=float)
     args = vars(parser.parse_args())
 
     start_time = time.perf_counter()
@@ -117,6 +118,7 @@ def main():
     use_fedprox = args["use_fedprox"]
     fedprox_mu = args["fedprox_mu"]
     inference_only = args["inference_only"]
+    dirichlet_beta = args["dirichlet_beta"]
 
     dataset_name = args["dataset"]
 
@@ -189,27 +191,49 @@ def main():
         in_channels = 3
         num_classes = 100
         client_label_map = {
-            "client_0": [0, 1, 2, 3, 4],
-            "client_1": [5, 6, 7, 8, 9],
-            "client_2": [10, 11, 12, 13, 14],
-            "client_3": [15, 16, 17, 18, 19],
-            "client_4": [20, 21, 22, 23, 24],
-            "client_5": [25, 26, 27, 28, 29],
-            "client_6": [30, 31, 32, 33, 34],
-            "client_7": [35, 36, 37, 38, 39],
-            "client_8": [40, 41, 42, 43, 44],
-            "client_9": [45, 46, 47, 48, 49],
-            "client_10": [50, 51, 52, 53, 54],
-            "client_11": [55, 56, 57, 58, 59],
-            "client_12": [60, 61, 62, 63, 64],
-            "client_13": [65, 66, 67, 68, 69],
-            "client_14": [70, 71, 72, 73, 74],
-            "client_15": [75, 76, 77, 78, 79],
-            "client_16": [80, 81, 82, 83, 84],
-            "client_17": [85, 86, 87, 88, 89],
-            "client_18": [90, 91, 92, 93, 94],
-            "client_19": [95, 96, 97, 98, 99],
+            "client_0": [4, 30, 55, 72, 95],
+            "client_1": [1, 32, 67, 73, 91],
+            "client_2": [54, 62, 70, 82, 92],
+            "client_3": [9, 10, 16, 28, 61],
+            "client_4": [0, 51, 53, 57, 83],
+            "client_5": [22, 39, 40, 86, 87],
+            "client_6": [5, 20, 25, 84, 94],
+            "client_7": [6, 7, 14, 18, 24],
+            "client_8": [3, 42, 43, 88, 97],
+            "client_9": [12, 17, 37, 68, 76],
+            "client_10": [23, 33, 49, 60, 71],
+            "client_11": [15, 19, 21, 31, 38],
+            "client_12": [34, 63, 64, 66, 75],
+            "client_13": [26, 45, 77, 79, 99],
+            "client_14": [2, 11, 35, 46, 98],
+            "client_15": [27, 29, 44, 78, 93],
+            "client_16": [36, 50, 65, 74, 80],
+            "client_17": [47, 52, 56, 59, 96],
+            "client_18": [8, 13, 48, 58, 90],
+            "client_19": [41, 69, 81, 85, 89],
         }
+        # client_label_map = {
+        #    "client_0": [0, 1, 2, 3, 4],
+        #    "client_1": [5, 6, 7, 8, 9],
+        #    "client_2": [10, 11, 12, 13, 14],
+        #    "client_3": [15, 16, 17, 18, 19],
+        #    "client_4": [20, 21, 22, 23, 24],
+        #    "client_5": [25, 26, 27, 28, 29],
+        #    "client_6": [30, 31, 32, 33, 34],
+        #    "client_7": [35, 36, 37, 38, 39],
+        #    "client_8": [40, 41, 42, 43, 44],
+        #    "client_9": [45, 46, 47, 48, 49],
+        #    "client_10": [50, 51, 52, 53, 54],
+        #    "client_11": [55, 56, 57, 58, 59],
+        #    "client_12": [60, 61, 62, 63, 64],
+        #    "client_13": [65, 66, 67, 68, 69],
+        #    "client_14": [70, 71, 72, 73, 74],
+        #    "client_15": [75, 76, 77, 78, 79],
+        #    "client_16": [80, 81, 82, 83, 84],
+        #    "client_17": [85, 86, 87, 88, 89],
+        #    "client_18": [90, 91, 92, 93, 94],
+        #    "client_19": [95, 96, 97, 98, 99],
+        # }
         num_clients = len(client_label_map)
     elif dataset_name == "svhn":
         in_channels = 3
@@ -297,6 +321,9 @@ def main():
 
     if use_squared_loss:
         save_name = save_name + "_squared_loss"
+
+    if dirichlet_beta > 0:
+        save_name = save_name + f"_dirichlet_{dirichlet_beta}"
 
     if tag:
         save_name = save_name + f"_{tag}"
@@ -474,6 +501,7 @@ def main():
             samples_per_client,
             use_iid_partition=use_iid_partition,
             seed=seed,
+            dirichlet_beta=dirichlet_beta,
         )
         train_loaders = [
             DataLoader(
@@ -530,14 +558,10 @@ def main():
         logger.info("===================== Start Stage-1 =====================")
 
         # Instantiate models and optimizers
-        global_model = torch.nn.DataParallel(
-            make_model(architecture, in_channels, num_classes, pretrained=pretrained)
-        ).cuda()
+        global_model = make_model(architecture, in_channels, num_classes, pretrained=pretrained).cuda()
         client_models = [
-            torch.nn.DataParallel(
-                make_model(
-                    architecture, in_channels, num_classes, pretrained=pretrained
-                )
+            make_model(
+                architecture, in_channels, num_classes, pretrained=pretrained
             ).cuda()
             for _ in range(num_clients)
         ]
@@ -547,14 +571,14 @@ def main():
                 checkpoint_dir.glob(f"{save_name}_stage1_model_*.pth"),
                 key=lambda x: int(x.stem.split("_")[-1]),
             )
-            global_model.module.load_state_dict(torch.load(checkpoint))
+            global_model.load_state_dict(torch.load(checkpoint))
             r = int(checkpoint.stem.split("_")[-1])
             logger.info(f"starting stage 1 with {checkpoint} at round {r}")
         else:
             r = 1
 
         for model in client_models:
-            model.module.load_state_dict(global_model.module.state_dict())
+            model.load_state_dict(global_model.state_dict())
         opt = [
             optim.SGD(
                 model.parameters(),
@@ -586,15 +610,9 @@ def main():
             )
 
             torch.save(val_scores, score_dir / f"{save_name}_stage1_val_scores.pth")
-            torch.save(
-                val_targets, score_dir / f"{save_name}_stage1_val_targets.pth"
-            )
-            torch.save(
-                test_scores, score_dir / f"{save_name}_stage1_test_scores.pth"
-            )
-            torch.save(
-                test_targets, score_dir / f"{save_name}_stage1_test_targets.pth"
-            )
+            torch.save(val_targets, score_dir / f"{save_name}_stage1_val_targets.pth")
+            torch.save(test_scores, score_dir / f"{save_name}_stage1_test_scores.pth")
+            torch.save(test_targets, score_dir / f"{save_name}_stage1_test_targets.pth")
             exit()
 
         stage1_loss = collections.defaultdict(list)
@@ -606,7 +624,7 @@ def main():
 
             # load global weights
             for model in client_models:
-                model.module.load_state_dict(global_model.module.state_dict())
+                model.load_state_dict(global_model.state_dict())
 
             # client update
             loss = 0
@@ -627,7 +645,7 @@ def main():
             # save global model
             if r % 25 == 0:
                 torch.save(
-                    global_model.module.state_dict(),
+                    global_model.state_dict(),
                     checkpoint_dir / f"{save_name}_stage1_model_{r}.pth",
                 )
 
@@ -835,6 +853,7 @@ def main():
                 samples_per_client,
                 use_iid_partition=use_iid_partition,
                 seed=seed,
+                dirichlet_beta=dirichlet_beta,
             )
             train_loaders = [
                 DataLoader(
@@ -855,7 +874,7 @@ def main():
 
         # Init and load model ckpt
         global_model = make_model(architecture, in_channels, num_classes).cuda()
-        global_model.load_state_dict(torch.load(checkpoint))
+        global_model.load_state_dict(torch.load(checkpoint, map_location='cpu'))
         global_model = global_model.cuda()
 
         client_train_loss, client_train_acc = 0, 0
@@ -1045,4 +1064,6 @@ def main():
 
 
 if __name__ == "__main__":
+    print('cuda', torch.cuda.is_available())
+    print(torch.cuda.device_count())
     main()
