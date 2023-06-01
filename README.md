@@ -6,6 +6,7 @@ Conformal prediction is emerging as a popular paradigm for providing rigorous un
 In this paper, we extend conformal prediction to the federated learning setting. The main challenge we face is data heterogeneity across the clients --- this violates the fundamental tenet of *exchangeability* required for conformal prediction. We instead propose a weaker notion of *partial exchangeability* which is better suited to the FL setting and use it to develop the Federated Conformal Prediction (FCP) framework. We show FCP enjoys rigorous theoretical guarantees as well as excellent empirical performance on several computer vision and medical imaging datasets.
 Our results demonstrate a practical approach to incorporating meaningful uncertainty quantification in distributed and heterogeneous environments.
 
+[Paper](https://arxiv.org/abs/2305.17564)
 
 ## Datasets
 * [Fitzpatrick17K](https://github.com/mattgroh/fitzpatrick17k)
