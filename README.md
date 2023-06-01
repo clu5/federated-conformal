@@ -7,6 +7,10 @@ In this paper, we extend conformal prediction to the federated learning setting.
 Our results demonstrate a practical approach to incorporating meaningful uncertainty quantification in distributed and heterogeneous environments.
 
 
+## Datasets
+* [Fitzpatrick17K](https://github.com/mattgroh/fitzpatrick17k)
+* [MedMNIST](https://medmnist.com/)
+
 
 ```
 @article{lu2023federated,

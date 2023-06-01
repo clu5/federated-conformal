@@ -60,7 +60,7 @@ def main():
     parser.add_argument("--central", action="store_true")
     parser.add_argument("--momentum", default=0.9, type=float)
     parser.add_argument("--use_data_augmentation", action="store_true")
-    parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrick_v5.csv", type=str)
+    parser.add_argument("--fitzpatrick_csv", default="csv/fitzpatrick.csv", type=str)
     parser.add_argument("--pretrained", action="store_true")
     parser.add_argument("--num_random_grad", default=100000, type=int)
     parser.add_argument("--start_from_stage1", action="store_true")
