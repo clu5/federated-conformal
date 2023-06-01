@@ -9,3 +9,13 @@ We instead propose a weaker notion of \emph{partial exchangeability} which is be
 We show FCP enjoys rigorous theoretical guarantees as well as excellent empirical performance on several computer vision and medical imaging datasets.
 Our results demonstrate a practical approach to incorporating meaningful uncertainty quantification in distributed and heterogeneous environments.
 
+
+
+```
+@article{lu2023federated,
+  title={Federated Conformal Predictors for Distributed Uncertainty Quantification},
+  author={Lu, Charles and Yu, Yaodong and Karimireddy, Sai Praneeth and Jordan, Michael I and Raskar, Ramesh},
+  journal={arXiv preprint arXiv:2305.17564},
+  year={2023}
+}
+```
